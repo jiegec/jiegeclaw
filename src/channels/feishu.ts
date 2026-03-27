@@ -1,19 +1,7 @@
 import type { Channel, InboundMessage, OutboundMessage } from "../types.js";
 import * as Lark from "@larksuiteoapi/node-sdk";
 import type { FeishuChannelConfig } from "./feishu-types.js";
-import * as readline from "node:readline";
-
-function createRl(): readline.Interface {
-  return readline.createInterface({ input: process.stdin, output: process.stderr });
-}
-
-function question(rl: readline.Interface, prompt: string): Promise<string> {
-  return new Promise((resolve) => {
-    rl.question(prompt, (answer) => {
-      resolve(answer.trim());
-    });
-  });
-}
+import { createRl, question } from "../readline.js";
 
 export class FeishuChannel implements Channel {
   readonly id: string;

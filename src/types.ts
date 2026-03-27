@@ -2,13 +2,13 @@ export interface InboundMessage {
   id: string;
   from: string;
   text: string;
-  contextToken?: string;
+  contextToken?: any;
 }
 
 export interface OutboundMessage {
   to: string;
   text: string;
-  contextToken?: string;
+  contextToken?: any;
 }
 
 export interface Channel {

@@ -4,6 +4,8 @@ import { WeixinChannel } from "./channels/weixin.js";
 import type { WeixinChannelConfig } from "./channels/weixin-types.js";
 import { FeishuChannel } from "./channels/feishu.js";
 import type { FeishuChannelConfig } from "./channels/feishu-types.js";
+import { WecomChannel } from "./channels/wecom.js";
+import type { WecomChannelConfig } from "./channels/wecom-types.js";
 import { OpencodeHandler } from "./opencode.js";
 import { Server } from "./server.js";
 import type { Channel } from "./types.js";
@@ -19,6 +21,8 @@ function createChannel(
       return new WeixinChannel(cfg as WeixinChannelConfig, index, onConfigUpdate as never);
     case "feishu":
       return new FeishuChannel(cfg as FeishuChannelConfig, index, onConfigUpdate as never);
+    case "wecom":
+      return new WecomChannel(cfg as WecomChannelConfig, index, onConfigUpdate as never);
     default:
       throw new Error(`Unknown channel type: ${cfg.type}`);
   }

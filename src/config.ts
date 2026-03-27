@@ -4,13 +4,14 @@ import os from "node:os";
 import { parse, stringify } from "yaml";
 import { FeishuChannelConfig } from "./channels/feishu-types.js";
 import { WeixinChannelConfig } from "./channels/weixin-types.js";
+import { WecomChannelConfig } from "./channels/wecom-types.js";
 
 const CONFIG_DIR = path.join(os.homedir(), ".jiegeclaw");
 const CONFIG_PATH = path.join(CONFIG_DIR, "config.yaml");
 const SESSIONS_PATH = path.join(CONFIG_DIR, "sessions.yaml");
 
 
-export type ChannelConfig = FeishuChannelConfig | WeixinChannelConfig | { type: string;[key: string]: unknown };
+export type ChannelConfig = FeishuChannelConfig | WeixinChannelConfig | WecomChannelConfig | { type: string;[key: string]: unknown };
 
 export interface OpenCodeConfig {
   baseUrl?: string;
