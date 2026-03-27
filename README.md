@@ -11,7 +11,7 @@ Two channels are supported right now:
 - **WeChat**: Uses `@tencent-weixin/openclaw-weixin` with QR code login and long-polling
 - **Feishu**: Uses `@larksuiteoapi/node-sdk` with WebSocket push and reply-in-thread support
 
-Each channel uses its own OpenCode session, so conversations are isolated per channel.
+Each channel uses its own OpenCode session, so conversations are isolated per channel. Sessions are persisted to `~/.jiegeclaw/sessions.yaml` and reused across restarts. When a channel reconnects, it resumes the previous session if it still exists on the OpenCode server, otherwise creates a new one.
 
 ## Setup
 
