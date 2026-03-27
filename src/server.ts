@@ -17,14 +17,16 @@ export class Server {
     const promises = this.channels.map((channel) =>
       channel.listen(async (msg: InboundMessage) => {
         try {
-          console.log(`[${channel.id}] <${msg.from}: ${msg.text.slice(0, 100)}`);
+          const truncIn = msg.text.length > 100 ? "..." : "";
+          console.log(`[${channel.id}] <${msg.from}: ${msg.text.slice(0, 100)}${truncIn}`);
           const reply = await this.handler.handle(msg);
           await channel.send({
             to: msg.from,
             text: reply,
             contextToken: msg.contextToken,
           });
-          console.log(`[${channel.id}] >${msg.from}: ${reply.slice(0, 100)}`);
+          const truncOut = reply.length > 100 ? "..." : "";
+          console.log(`[${channel.id}] >${msg.from}: ${reply.slice(0, 100)}${truncOut}`);
         } catch (err) {
           console.error(`[${channel.id}] Error handling message from ${msg.from}:`, (err as Error).message);
           try {
