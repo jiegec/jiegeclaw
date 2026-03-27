@@ -122,6 +122,5 @@ export class FeishuChannel implements Channel {
     }
   }
 
-  stop(): void {
-  }
+  stop(): void {}
 }
