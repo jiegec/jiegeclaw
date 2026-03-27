@@ -33,9 +33,75 @@ export class OpencodeHandler {
       },
     });
 
-    const textParts = result.data?.parts?.filter(
-      (p) => p.type === "text",
-    );
-    return textParts?.map((p) => p.text).join("\n") ?? "(no response)";
+    const parts = result.data?.parts ?? [];
+    if (parts.length === 0) return "(no response)";
+
+    const lines: string[] = [];
+    for (const p of parts) {
+      switch (p.type) {
+        case "text":
+          lines.push(p.text);
+          break;
+        case "reasoning":
+          lines.push(`💭 ${p.text}`);
+          break;
+        case "tool":
+          lines.push(formatToolPart(p));
+          break;
+        case "patch":
+          lines.push(`📝 Patch ${p.hash}: ${p.files.join(", ")}`);
+          break;
+        case "file":
+          lines.push(`📎 ${p.filename ?? p.url} (${p.mime})`);
+          break;
+        case "agent":
+          lines.push(`🤖 Agent: ${p.name}`);
+          break;
+        case "retry":
+          lines.push(`🔁 Retry #${p.attempt}: ${p.error.data.message ?? "unknown error"}`);
+          break;
+        case "subtask":
+          lines.push(`📋 Subtask [${p.agent}]: ${p.description}`);
+          break;
+        case "step-start":
+          lines.push(`▶️ Step started`);
+          break;
+        case "step-finish":
+          lines.push(
+            `⏹️ Step finished (${p.reason}): ${p.tokens?.input ?? "?"}in / ${p.tokens?.output ?? "?"}out, $${p.cost?.toFixed(4) ?? "?"}`,
+          );
+          break;
+        case "snapshot":
+          lines.push(`📸 Snapshot: ${p.snapshot.slice(0, 8)}`);
+          break;
+        case "compaction":
+          lines.push(`📦 Compaction${p.auto ? " (auto)" : ""}`);
+          break;
+        default:
+          lines.push(JSON.stringify(p));
+          break;
+      }
+    }
+    return lines.join("\n");
+  }
+}
+
+function formatToolPart(p: {
+  tool: string;
+  callID: string;
+  state: { status: string; title?: string; output?: string; error?: string; input?: unknown };
+}): string {
+  const title = p.state.title ?? p.tool;
+  switch (p.state.status) {
+    case "pending":
+      return `🔧 ${title}...`;
+    case "running":
+      return `⚙️ ${title}...`;
+    case "completed":
+      return `✅ ${title}: ${p.state.output !== undefined ? p.state.output.slice(0, 200) : "(no output)"}`;
+    case "error":
+      return `❌ ${title}: ${p.state.error ?? "unknown error"}`;
+    default:
+      return `🔧 ${title} (${p.state.status})`;
   }
 }
