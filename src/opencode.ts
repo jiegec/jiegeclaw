@@ -197,7 +197,7 @@ export class OpencodeHandler {
               const baseMsg = this.createBaseMsg(state);
               if (isNew && baseMsg !== null) {
                 const title = info.title ?? "subagent";
-                await stream.send({ ...baseMsg, text: `🤖 Launching subagent: ${title}` });
+                await stream.send({ ...baseMsg, text: `🤖 Launching subagent: **${title}**` });
               }
               console.log(`[${channelId}] Tracking child session ${e.properties.sessionID}`);
             }
@@ -205,7 +205,7 @@ export class OpencodeHandler {
             const status = (e.properties as { status: { type: string } }).status;
             const baseMsg = this.createBaseMsg(state);
             if (status.type === "idle" && baseMsg !== null) {
-              await stream.send({ ...baseMsg, text: `✅ Subagent finished` });
+              await stream.send({ ...baseMsg, text: `✅ **Subagent finished**` });
             }
           }
 
@@ -263,7 +263,7 @@ export class OpencodeHandler {
 
     const questionText =
       `❓ ${permission.permission}\n\n` +
-      `1. Allow once\n2. Always allow\n3. Reject\n\n` +
+      `1. **Allow once**\n2. **Always allow**\n3. **Reject**\n\n` +
       `Reply with number or label:`;
 
     const reply = await stream.waitForReply(
@@ -319,13 +319,13 @@ export class OpencodeHandler {
     let answers = [];
     for (let question of request.questions) {
       let questionText =
-        `❓ ${question.header}\n\n${question.question}\n\n`;
+        `❓ **${question.header}**\n\n${question.question}\n\n`;
       let labels = [];
       for (let option of question.options) {
-        questionText += `${option.label}: ${option.description}\n`;
+        questionText += `- **${option.label}**: ${option.description}\n`;
         labels.push(option.label);
       }
-      questionText += `Reply with label:`;
+      questionText += `\nReply with label:`;
 
       const answer = await stream.waitForReply(
         { ...baseMsg, text: questionText },
