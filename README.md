@@ -1,15 +1,16 @@
 # jiegeclaw
 
-A personal AI assistant that bridges OpenCode with WeChat and Feishu.
+A personal AI assistant that bridges OpenCode with WeChat, Feishu, and WeCom.
 
 ## How it works
 
 The architecture is straightforward: messaging channels receive user messages, forward them to a locally running OpenCode server, and send the responses back.
 
-Two channels are supported right now:
+Three channels are supported right now:
 
 - **WeChat**: Uses `@tencent-weixin/openclaw-weixin` with QR code login and long-polling
 - **Feishu**: Uses `@larksuiteoapi/node-sdk` with WebSocket push and reply-in-thread support
+- **WeCom**: Uses `@wecom/aibot-node-sdk` with WebSocket and streaming reply support
 
 Each channel uses its own OpenCode session, so conversations are isolated per channel. Sessions are persisted to `~/.jiegeclaw/sessions.yaml` and reused across restarts. When a channel reconnects, it resumes the previous session if it still exists on the OpenCode server, otherwise creates a new one.
 
@@ -34,6 +35,9 @@ channels:
     accountId: xxxxxxxxxxxx
     token: xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
     userId: xxxxxxxxxxxx
+  - type: wecom
+    botId: xxxxxxxxxxxx
+    secret: xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
 opencode:
   baseUrl: http://127.0.0.1:4096
 ```
@@ -50,6 +54,9 @@ npm run start -- setup add feishu
 
 # WeChat: scan the QR code displayed in the terminal
 npm run start -- setup add weixin
+
+# WeCom: follow the prompts to enter Bot ID and Secret
+npm run start -- setup add wecom
 ```
 
 ### Start the bot
