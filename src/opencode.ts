@@ -81,12 +81,8 @@ export class OpencodeHandler {
           await this.handleQuestion(e.properties, stream, baseMsg);
         } else if (e.type === "message.part.updated" && e.properties.part.sessionID === sessionID) {
           const part = e.properties.part;
-          if (part.type === "tool" && part.tool === "question" && part.state.status === "running") {
-
-          } else {
-            const text = partToText(part);
-            if (text) await stream.send({ ...baseMsg, text });
-          }
+          const text = partToText(part);
+          if (text) await stream.send({ ...baseMsg, text });
         }
       }
     } finally {
