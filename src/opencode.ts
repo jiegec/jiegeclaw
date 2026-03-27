@@ -273,9 +273,9 @@ function formatToolPart(p: ToolPart): string | null {
         }
       }
       const truncatedOut = out.length > 200;
-      const inputStr = stringify(p.state.input);
+      const inputStr = stringify(p.state.input).trim();
       const truncatedInput = inputStr.length > 500 ? inputStr.slice(0, 500) + "..." : inputStr;
-      const outPreview = out.slice(0, 200);
+      const outPreview = out.trim().slice(0, 200);
       return `✅ **[${p.tool}]** ${p.state.title}\n\`\`\`\n${truncatedInput}\n\`\`\`\n**Output:**\n\`\`\`\n${outPreview}${truncatedOut ? "..." : ""}\n\`\`\``;
     }
     case "error": return `❌ **Error** [${p.tool}]: ${p.state.error}`;
