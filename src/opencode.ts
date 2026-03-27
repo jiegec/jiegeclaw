@@ -11,7 +11,7 @@ export interface StreamHandler {
 interface SessionEntry {
   sessionID: string;
   activeMsg: InboundMessage | null;
-  stream: StreamHandler | null;
+  stream: StreamHandler;
   done: Promise<void>;
 }
 
@@ -67,17 +67,14 @@ export class OpencodeHandler {
         for await (const event of result.stream) {
           const e = event as Event;
 
-          if (e.type === "session.idle" && e.properties.sessionID === entry.sessionID) {
-            entry.activeMsg = null;
-          } else if (e.type === "session.error" && e.properties.sessionID === entry.sessionID) {
+          if (e.type === "session.error" && e.properties.sessionID === entry.sessionID) {
             const errObj = e.properties.error;
             let errMsg = "unknown error";
             if (errObj && "data" in errObj && (errObj as { data: { message?: string } }).data?.message) {
               errMsg = (errObj as { data: { message?: string } }).data.message!;
             }
-            const msg = entry.activeMsg;
             const baseMsg = this.createBaseMsg(entry);
-            if (msg && entry.stream && baseMsg) {
+            if (baseMsg !== null) {
               await entry.stream.send({ ...baseMsg, text: `Error: ${errMsg}` });
             }
             entry.activeMsg = null;
@@ -89,7 +86,7 @@ export class OpencodeHandler {
             const part = e.properties.part;
             const text = partToText(part);
             const baseMsg = this.createBaseMsg(entry);
-            if (text && entry.stream && baseMsg) {
+            if (text !== null && baseMsg !== null) {
               await entry.stream.send({ ...baseMsg, text });
             }
           }
@@ -192,7 +189,6 @@ export class OpencodeHandler {
   stop(): void {
     for (const [, entry] of this.sessions) {
       entry.activeMsg = null;
-      entry.stream = null;
     }
   }
 }
