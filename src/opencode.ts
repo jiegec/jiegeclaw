@@ -1,115 +1,216 @@
+import { spawn, type ChildProcess } from "node:child_process";
 import { createOpencodeClient } from "@opencode-ai/sdk/v2";
 import type { OpencodeClient, Event, Part, ToolPart, PermissionRequest, QuestionRequest, Message } from "@opencode-ai/sdk/v2";
 import { stringify, parse } from "yaml";
 import type { InboundMessage, OutboundMessage } from "./types.js";
-import { loadSessions, saveSession } from "./config.js";
+import {
+  loadSessions,
+  getLastDir,
+  getSessionIdForDir,
+  updateChannelSession,
+} from "./config.js";
 
 export interface StreamHandler {
   send(msg: OutboundMessage): Promise<void>;
   waitForReply(msg: OutboundMessage, validChoices?: string[]): Promise<string>;
 }
 
-interface SessionEntry {
+interface ServerProcess {
+  proc: ChildProcess;
+  url: string;
+  close(): void;
+}
+
+interface ChannelState {
+  stream: StreamHandler;
+  directory: string;
+  server: ServerProcess;
+  client: OpencodeClient;
   sessionID: string;
   activeMsg: InboundMessage | null;
-  stream: StreamHandler;
   childSessionIDs: Set<string>;
+  abortController: AbortController;
 }
 
 export class OpencodeHandler {
-  private client: OpencodeClient;
-  private sessions: Map<string, SessionEntry> = new Map();
+  private channelStates: Map<string, ChannelState> = new Map();
+  private portCounter = 4096;
 
-  constructor(opencodeBaseUrl: string | undefined) {
-    this.client = createOpencodeClient(
-      opencodeBaseUrl ? { baseUrl: opencodeBaseUrl } : undefined,
-    );
+  setStream(channelId: string, stream: StreamHandler): void {
+    const existing = this.channelStates.get(channelId);
+    if (existing) {
+      existing.stream = stream;
+    } else {
+      this.channelStates.set(channelId, { stream } as ChannelState);
+    }
   }
 
-  async createSession(channelId: string, stream: StreamHandler): Promise<void> {
-    const sessions = loadSessions();
-    const savedSessionID = sessions[channelId];
-    let sessionID: string;
+  hasDirectory(channelId: string): boolean {
+    return getLastDir(channelId, loadSessions()) !== undefined;
+  }
 
+  async ensureSession(channelId: string): Promise<void> {
+    const existing = this.channelStates.get(channelId);
+    if (existing?.server) return;
+    const sessions = loadSessions();
+    const lastDir = getLastDir(channelId, sessions);
+    if (!lastDir) throw new Error(`No directory for channel ${channelId}`);
+    await this.cd(channelId, lastDir);
+  }
+
+  async cd(channelId: string, directory: string): Promise<void> {
+    const existing = this.channelStates.get(channelId);
+    const stream = existing?.stream;
+    if (!stream) throw new Error(`No stream for channel ${channelId}`);
+
+    if (existing?.server) {
+      console.log(`[${channelId}] Tearing down old server in ${existing.directory}`);
+      existing.abortController.abort();
+      existing.activeMsg = null;
+      existing.server.close();
+    }
+
+    const sessions = loadSessions();
+    const savedSessionID = getSessionIdForDir(channelId, directory, sessions);
+
+    const port = this.portCounter++;
+    console.log(`[${channelId}] Spawning opencode serve on port ${port}...`);
+    const server = await this.spawnServer(directory, port);
+    console.log(`[${channelId}] Server started at ${server.url}`);
+    const client = createOpencodeClient({ baseUrl: server.url });
+
+    let sessionID: string;
     if (savedSessionID !== undefined) {
       try {
-        await this.client.session.get({ sessionID: savedSessionID });
+        await client.session.get({ sessionID: savedSessionID });
         sessionID = savedSessionID;
-        console.log(`[${channelId}] Reusing existing OpenCode session ${sessionID}`);
+        console.log(`[${channelId}] Reusing session ${sessionID} for ${directory}`);
       } catch {
         console.log(`[${channelId}] Saved session ${savedSessionID} not found, creating new one`);
-        const session = await this.client.session.create();
+        const session = await client.session.create();
         const id = session.data?.id;
         if (id === undefined) throw new Error("Failed to create session");
         sessionID = id;
+        console.log(`[${channelId}] Created new session ${sessionID}`);
       }
     } else {
-      const session = await this.client.session.create();
+      const session = await client.session.create();
       const id = session.data?.id;
       if (id === undefined) throw new Error("Failed to create session");
       sessionID = id;
+      console.log(`[${channelId}] Created new session ${sessionID}`);
     }
 
-    saveSession(channelId, sessionID);
+    updateChannelSession(channelId, directory, sessionID, sessions);
 
-    const entry: SessionEntry = {
+    this.channelStates.set(channelId, {
+      stream,
+      directory,
+      server,
+      client,
       sessionID,
       activeMsg: null,
-      stream,
       childSessionIDs: new Set(),
-    };
-    this.sessions.set(channelId, entry);
+      abortController: new AbortController(),
+    });
 
-    if (sessionID !== savedSessionID) {
-      console.log(`[${channelId}] Created OpenCode session ${sessionID}`);
-    }
-
-    this.runEventLoop(channelId, entry);
+    console.log(`[${channelId}] Session ${sessionID} in ${directory}`);
+    this.runEventLoop(channelId);
   }
 
   async handle(channelId: string, msg: InboundMessage): Promise<void> {
-    const entry = this.sessions.get(channelId);
-    if (!entry) throw new Error(`No session for channel ${channelId}`);
+    const state = this.channelStates.get(channelId);
+    if (!state) throw new Error(`No session for channel ${channelId}`);
 
-    entry.activeMsg = msg;
+    state.activeMsg = msg;
 
-    await this.client.session.promptAsync({
-      sessionID: entry.sessionID,
+    await state.client.session.promptAsync({
+      sessionID: state.sessionID,
       parts: [{ type: "text" as const, text: msg.text }],
     });
   }
 
-  private async runEventLoop(channelId: string, entry: SessionEntry): Promise<void> {
+  private spawnServer(directory: string, port: number): Promise<ServerProcess> {
+    return new Promise((resolve, reject) => {
+      const proc = spawn("opencode", [`serve`, `--hostname=127.0.0.1`, `--port=${port}`], {
+        cwd: directory,
+        env: process.env,
+      });
+
+      const timeout = setTimeout(() => {
+        proc.kill();
+        reject(new Error(`Timeout waiting for opencode server in ${directory}`));
+      }, 15000);
+
+      let output = "";
+      const onOutput = (chunk: Buffer) => {
+        output += chunk.toString();
+        const match = output.match(/opencode server listening on\s+(https?:\/\/[^\s]+)/);
+        if (match) {
+          clearTimeout(timeout);
+          proc.stdout?.off("data", onOutput);
+          proc.stderr?.off("data", onOutput);
+          resolve({ proc, url: match[1], close() { proc.kill(); } });
+        }
+      };
+
+      proc.stdout?.on("data", onOutput);
+      proc.stderr?.on("data", onOutput);
+      proc.on("exit", (code) => {
+        clearTimeout(timeout);
+        reject(new Error(`opencode server exited with code ${code}`));
+      });
+      proc.on("error", (error) => {
+        clearTimeout(timeout);
+        reject(error);
+      });
+    });
+  }
+
+  private createBaseMsg(state: ChannelState): OutboundMessage | null {
+    if (!state.activeMsg) return null;
+    return { to: state.activeMsg.from, text: "", contextToken: state.activeMsg.contextToken };
+  }
+
+  private async runEventLoop(channelId: string): Promise<void> {
+    const state = this.channelStates.get(channelId);
+    if (!state) return;
+
+    const { client, sessionID, abortController, stream } = state;
     const messages: Map<string, Message> = new Map();
-    while (true) {
+
+    while (!abortController.signal.aborted) {
       try {
-        const result = await this.client.event.subscribe();
+        const result = await client.event.subscribe();
+        console.log(`[${channelId}] Event stream connected`);
 
         for await (const event of result.stream) {
+          if (abortController.signal.aborted) break;
+
           const e = event as Event;
 
           if (e.type === "session.updated") {
             const info = e.properties.info;
-            if (info.parentID === entry.sessionID && e.properties.sessionID !== entry.sessionID) {
-              const isNew = !entry.childSessionIDs.has(e.properties.sessionID);
-              entry.childSessionIDs.add(e.properties.sessionID);
-              const baseMsg = this.createBaseMsg(entry);
+            if (info.parentID === sessionID && e.properties.sessionID !== sessionID) {
+              const isNew = !state.childSessionIDs.has(e.properties.sessionID);
+              state.childSessionIDs.add(e.properties.sessionID);
+              const baseMsg = this.createBaseMsg(state);
               if (isNew && baseMsg !== null) {
                 const title = info.title ?? "subagent";
-                await entry.stream.send({ ...baseMsg, text: `🤖 Launching subagent: ${title}` });
+                await stream.send({ ...baseMsg, text: `🤖 Launching subagent: ${title}` });
               }
               console.log(`[${channelId}] Tracking child session ${e.properties.sessionID}`);
             }
-          } else if (e.type === "session.status" && e.properties.sessionID !== entry.sessionID && entry.childSessionIDs.has(e.properties.sessionID)) {
+          } else if (e.type === "session.status" && e.properties.sessionID !== sessionID && state.childSessionIDs.has(e.properties.sessionID)) {
             const status = (e.properties as { status: { type: string } }).status;
-            const baseMsg = this.createBaseMsg(entry);
+            const baseMsg = this.createBaseMsg(state);
             if (status.type === "idle" && baseMsg !== null) {
-              await entry.stream.send({ ...baseMsg, text: `✅ Subagent finished` });
+              await stream.send({ ...baseMsg, text: `✅ Subagent finished` });
             }
           }
 
-          const isOwnEvent = (sessionID: string | undefined) =>
-            sessionID === entry.sessionID || (sessionID !== undefined && entry.childSessionIDs.has(sessionID));
+          const isOwnEvent = (sid: string | undefined) =>
+            sid === sessionID || (sid !== undefined && state.childSessionIDs.has(sid));
 
           if (e.type === "session.error" && isOwnEvent(e.properties.sessionID)) {
             const errObj = e.properties.error;
@@ -117,24 +218,25 @@ export class OpencodeHandler {
             if (errObj && "data" in errObj && (errObj as { data: { message?: string } }).data?.message) {
               errMsg = (errObj as { data: { message?: string } }).data.message!;
             }
-            const baseMsg = this.createBaseMsg(entry);
+            const baseMsg = this.createBaseMsg(state);
             if (baseMsg !== null) {
-              await entry.stream.send({ ...baseMsg, text: `Error: ${errMsg}` });
+              await stream.send({ ...baseMsg, text: `Error: ${errMsg}` });
             }
-            entry.activeMsg = null;
+            state.activeMsg = null;
+            console.error(`[${channelId}] Session error: ${errMsg}`);
           } else if (e.type === "permission.asked" && isOwnEvent(e.properties.sessionID)) {
-            await this.handlePermission(entry, e.properties);
+            await this.handlePermission(channelId, client, stream, state, e.properties);
           } else if (e.type === "question.asked" && isOwnEvent(e.properties.sessionID)) {
-            await this.handleQuestion(entry, e.properties);
+            await this.handleQuestion(channelId, client, stream, state, e.properties);
           } else if (e.type === "message.updated" && isOwnEvent(e.properties.sessionID)) {
             messages.set(e.properties.info.id, e.properties.info);
           } else if (e.type === "message.part.updated" && isOwnEvent(e.properties.part.sessionID)) {
             const part = e.properties.part;
             const text = partToText(part);
-            const baseMsg = this.createBaseMsg(entry);
+            const baseMsg = this.createBaseMsg(state);
             const role = messages.get(e.properties.part.messageID)?.role;
             if (role === "assistant" && text !== null && text.length > 0 && baseMsg !== null) {
-              await entry.stream.send({ ...baseMsg, text });
+              await stream.send({ ...baseMsg, text });
             }
             if (text !== null && text.length > 0) {
               messages.delete(e.properties.part.messageID);
@@ -146,18 +248,17 @@ export class OpencodeHandler {
         await new Promise((r) => setTimeout(r, 1000));
       }
     }
-  }
-
-  private createBaseMsg(entry: SessionEntry): OutboundMessage | null {
-    if (!entry.activeMsg || !entry.stream) return null;
-    return { to: entry.activeMsg.from, text: "", contextToken: entry.activeMsg.contextToken };
+    console.log(`[${channelId}] Event loop exited`);
   }
 
   private async handlePermission(
-    entry: SessionEntry,
+    channelId: string,
+    client: OpencodeClient,
+    stream: StreamHandler,
+    state: ChannelState,
     permission: PermissionRequest,
   ): Promise<void> {
-    const baseMsg = this.createBaseMsg(entry);
+    const baseMsg = this.createBaseMsg(state);
     if (!baseMsg) return;
 
     const questionText =
@@ -165,16 +266,20 @@ export class OpencodeHandler {
       `1. Allow once\n2. Always allow\n3. Reject\n\n` +
       `Reply with number or label:`;
 
-    const reply = await entry.stream!.waitForReply(
+    const reply = await stream.waitForReply(
       { ...baseMsg, text: questionText },
       ["once", "always", "reject", "1", "2", "3", "allow once", "always allow", "reject"],
     );
 
     const choice = this.mapReplyToChoice(reply);
-    if (!choice) return;
+    if (!choice) {
+      console.warn(`[${channelId}] Unrecognized permission reply: "${reply}"`);
+      return;
+    }
 
     try {
-      await this.client.permission.reply({
+      console.log(`[${channelId}] Permission reply: ${choice} (request ${permission.id})`);
+      await client.permission.reply({
         requestID: permission.id,
         reply: choice,
       });
@@ -202,10 +307,13 @@ export class OpencodeHandler {
   }
 
   private async handleQuestion(
-    entry: SessionEntry,
+    channelId: string,
+    client: OpencodeClient,
+    stream: StreamHandler,
+    state: ChannelState,
     request: QuestionRequest,
   ): Promise<void> {
-    const baseMsg = this.createBaseMsg(entry);
+    const baseMsg = this.createBaseMsg(state);
     if (!baseMsg) return;
 
     let answers = [];
@@ -219,15 +327,16 @@ export class OpencodeHandler {
       }
       questionText += `Reply with label:`;
 
-      const answer = await entry.stream!.waitForReply(
+      const answer = await stream.waitForReply(
         { ...baseMsg, text: questionText },
         labels,
       );
+      console.log(`[${channelId}] Question answered: "${answer}"`);
       answers.push([answer]);
     }
 
     try {
-      await this.client.question.reply({
+      await client.question.reply({
         requestID: request.id,
         answers: answers,
       });
@@ -237,8 +346,11 @@ export class OpencodeHandler {
   }
 
   stop(): void {
-    for (const [, entry] of this.sessions) {
-      entry.activeMsg = null;
+    for (const [channelId, state] of this.channelStates) {
+      console.log(`[${channelId}] Stopping session ${state.sessionID}`);
+      state.activeMsg = null;
+      state.abortController.abort();
+      state.server?.close();
     }
   }
 }
@@ -293,7 +405,7 @@ function formatTodoWrite(title: string, output: string): string | null {
     };
     const lines = todos.map((t) => {
       const icon = statusIcon[t.status] ?? "⬜";
-      return `${icon} **[${t.priority}]** ${t.content}`;
+      return `- ${icon} **[${t.priority}]** ${t.content}`;
     });
     return `✅ **[todowrite]** **${title}**\n\n${lines.join("\n")}`;
   } catch {

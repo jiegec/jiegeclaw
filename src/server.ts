@@ -8,7 +8,6 @@ export class Server {
     string,
     { resolve: (reply: string) => void; channel: Channel; to: string; validChoices?: string[] }
   > = new Map();
-  private streamMap: Map<string, StreamHandler> = new Map();
 
   constructor(handler: OpencodeHandler) {
     this.handler = handler;
@@ -24,8 +23,7 @@ export class Server {
   async start(): Promise<void> {
     for (const channel of this.channels) {
       const stream = this.createStreamHandler(channel);
-      this.streamMap.set(channel.id, stream);
-      await this.handler.createSession(channel.id, stream);
+      this.handler.setStream(channel.id, stream);
     }
 
     const promises = this.channels.map((channel) =>
@@ -36,6 +34,36 @@ export class Server {
         try {
           const truncIn = msg.text.length > 100 ? "..." : "";
           console.log(`[${channel.id}] <${msg.from}: ${msg.text.slice(0, 100)}${truncIn}`);
+
+          const slashMatch = msg.text.match(/^\/(\S+)\s*(.*)/);
+          if (slashMatch) {
+            const cmd = slashMatch[1];
+            const args = slashMatch[2].trim();
+
+            if (cmd === "cd") {
+              if (!args) {
+                await channel.send({ to: msg.from, text: "Usage: `/cd <path>`", contextToken: msg.contextToken });
+                return;
+              }
+              await this.handler.cd(channel.id, args);
+              await channel.send({ to: msg.from, text: `📁 Switched to ${args}`, contextToken: msg.contextToken });
+              return;
+            } else if (cmd === "help") {
+              await channel.send({ to: msg.from, text: "**Available commands:**\n\n- `/cd <path>`: Switch to a different project directory\n- `/help`: Show this help message", contextToken: msg.contextToken });
+              return;
+            }
+
+            await channel.send({ to: msg.from, text: `Unknown command: \`/${cmd}\`\nType \`/help\` to see available commands.`, contextToken: msg.contextToken });
+            return;
+          }
+
+          if (!this.handler.hasDirectory(channel.id)) {
+            console.log(`[${channel.id}] No directory set, prompting user`);
+            await channel.send({ to: msg.from, text: "No directory set. Use `/cd <path>` to select a project directory.", contextToken: msg.contextToken });
+            return;
+          }
+
+          await this.handler.ensureSession(channel.id);
 
           await this.handler.handle(channel.id, msg);
         } catch (err) {

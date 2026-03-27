@@ -4,7 +4,7 @@ A personal AI assistant that bridges OpenCode with WeChat, Feishu, and WeCom.
 
 ## How it works
 
-The architecture is straightforward: messaging channels receive user messages, forward them to a locally running OpenCode server, and send the responses back.
+The architecture is straightforward: messaging channels receive user messages, forward them to OpenCode, and send the responses back.
 
 Three channels are supported right now:
 
@@ -12,11 +12,13 @@ Three channels are supported right now:
 - **Feishu**: Uses `@larksuiteoapi/node-sdk` with WebSocket push and reply-in-thread support
 - **WeCom**: Uses `@wecom/aibot-node-sdk` with WebSocket and streaming reply support
 
-Each channel uses its own OpenCode session, so conversations are isolated per channel. Sessions are persisted to `~/.jiegeclaw/sessions.yaml` and reused across restarts. When a channel reconnects, it resumes the previous session if it still exists on the OpenCode server, otherwise creates a new one.
+jiegeclaw manages OpenCode instances automatically. Each channel gets its own OpenCode server process, launched on demand in the selected project directory. On first use, send `/cd <path>` to select a project directory; this creates or resumes a session. Subsequent messages reuse the existing server and session.
+
+Sessions are persisted to `~/.jiegeclaw/sessions.yaml`. When you `/cd` to a directory you've used before, the previous session is resumed. The last opened directory per channel is remembered so it's automatically reconnected on the next message after a restart.
 
 ## Setup
 
-Requires Node.js >= 22 and a running OpenCode server. Make sure to start OpenCode separately in your project directory using `opencode serve` before launching jiegeclaw.
+Requires Node.js >= 22 and [opencode](https://opencode.ai) installed and available in `$PATH`.
 
 ```bash
 npm install
@@ -38,11 +40,9 @@ channels:
   - type: wecom
     botId: xxxxxxxxxxxx
     secret: xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
-opencode:
-  baseUrl: http://127.0.0.1:4096
 ```
 
-`opencode.baseUrl` is optional and defaults to `http://127.0.0.1:4096`. You don't need to edit this file manually — just use the CLI setup commands.
+You don't need to edit this file manually — just use the CLI setup commands.
 
 ## Usage
 
@@ -64,6 +64,13 @@ npm start setup add wecom
 ```bash
 npm start
 ```
+
+### Slash commands
+
+Send these in any messaging channel:
+
+- `/cd <path>` — Switch to a different project directory. Tears down the previous server and launches a new one in the target directory, resuming or creating a session. Use this first before sending any messages.
+- `/help` — Show available commands.
 
 ### List configured channels
 

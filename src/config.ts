@@ -13,13 +13,8 @@ const SESSIONS_PATH = path.join(CONFIG_DIR, "sessions.yaml");
 
 export type ChannelConfig = FeishuChannelConfig | WeixinChannelConfig | WecomChannelConfig | { type: string;[key: string]: unknown };
 
-export interface OpenCodeConfig {
-  baseUrl?: string;
-}
-
 export interface AppConfig {
   channels: ChannelConfig[];
-  opencode?: OpenCodeConfig;
 }
 
 function defaultConfig(): AppConfig {
@@ -42,22 +37,49 @@ export function saveConfig(config: AppConfig): void {
   fs.writeFileSync(CONFIG_PATH, stringify(config), "utf-8");
 }
 
-type Sessions = Record<string, string>;
+interface ChannelSessions {
+  lastDir?: string;
+  dirs: Record<string, string>;
+}
+
+type Sessions = Record<string, ChannelSessions>;
 
 export function loadSessions(): Sessions {
   try {
     const raw = fs.readFileSync(SESSIONS_PATH, "utf-8");
     const sessions = parse(raw) as Sessions;
     if (typeof sessions !== "object" || sessions === null) return {};
+    for (const ch of Object.values(sessions)) {
+      if (!ch || typeof ch !== "object" || typeof (ch as ChannelSessions).dirs !== "object") {
+        return {};
+      }
+    }
     return sessions;
   } catch {
     return {};
   }
 }
 
-export function saveSession(channelId: string, sessionID: string): void {
-  const sessions = loadSessions();
-  sessions[channelId] = sessionID;
+export function saveSessions(sessions: Sessions): void {
   fs.mkdirSync(CONFIG_DIR, { recursive: true });
   fs.writeFileSync(SESSIONS_PATH, stringify(sessions), "utf-8");
+}
+
+export function getLastDir(channelId: string, sessions: Sessions): string | undefined {
+  return sessions[channelId]?.lastDir;
+}
+
+export function getSessionIdForDir(channelId: string, directory: string, sessions: Sessions): string | undefined {
+  return sessions[channelId]?.dirs[directory];
+}
+
+export function updateChannelSession(channelId: string, directory: string, sessionID: string, sessions: Sessions): Sessions {
+  if (!sessions[channelId]) {
+    sessions[channelId] = { lastDir: directory, dirs: {} };
+  }
+  const ch = sessions[channelId];
+  ch.lastDir = directory;
+  ch.dirs[directory] = sessionID;
+  saveSessions(sessions);
+  return sessions;
 }

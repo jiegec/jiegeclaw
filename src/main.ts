@@ -64,10 +64,7 @@ async function startServer(): Promise<void> {
 
   const updater = makeConfigUpdater(config.channels as ChannelConfig[]);
 
-  const opencode = new OpencodeHandler(
-    config.opencode?.baseUrl ?? "http://127.0.0.1:4096",
-  );
-
+  const opencode = new OpencodeHandler();
   const server = new Server(opencode);
 
   for (let i = 0; i < config.channels.length; i++) {
@@ -106,7 +103,6 @@ async function setupChannels(): Promise<void> {
       process.exit(1);
     }
 
-    // Save config
     const appConfig = loadConfig();
     appConfig.channels = tempConfig;
     saveConfig(appConfig);
