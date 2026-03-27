@@ -90,12 +90,18 @@ export class FeishuChannel implements Channel {
       });
     }
 
+    const content = JSON.stringify({
+      en_us: {
+        content: [[{ tag: "md", text: msg.text }]],
+      },
+    });
+
     if (msg.contextToken) {
       await this.client.im.v1.message.reply({
         path: { message_id: msg.contextToken },
         data: {
-          msg_type: "text",
-          content: JSON.stringify({ text: msg.text }),
+          msg_type: "post",
+          content,
         },
       });
     } else {
@@ -103,12 +109,12 @@ export class FeishuChannel implements Channel {
         params: { receive_id_type: "chat_id" },
         data: {
           receive_id: msg.to,
-          msg_type: "text",
-          content: JSON.stringify({ text: msg.text }),
+          msg_type: "post",
+          content,
         },
       });
     }
   }
 
-  stop(): void {}
+  stop(): void { }
 }
