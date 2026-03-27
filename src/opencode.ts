@@ -13,6 +13,7 @@ interface SessionEntry {
   sessionID: string;
   activeMsg: InboundMessage | null;
   stream: StreamHandler;
+  childSessionIDs: Set<string>;
 }
 
 export class OpencodeHandler {
@@ -55,6 +56,7 @@ export class OpencodeHandler {
       sessionID,
       activeMsg: null,
       stream,
+      childSessionIDs: new Set(),
     };
     this.sessions.set(channelId, entry);
 
@@ -86,7 +88,30 @@ export class OpencodeHandler {
         for await (const event of result.stream) {
           const e = event as Event;
 
-          if (e.type === "session.error" && e.properties.sessionID === entry.sessionID) {
+          if (e.type === "session.updated") {
+            const info = e.properties.info;
+            if (info.parentID === entry.sessionID && e.properties.sessionID !== entry.sessionID) {
+              const isNew = !entry.childSessionIDs.has(e.properties.sessionID);
+              entry.childSessionIDs.add(e.properties.sessionID);
+              const baseMsg = this.createBaseMsg(entry);
+              if (isNew && baseMsg !== null) {
+                const title = info.title ?? "subagent";
+                await entry.stream.send({ ...baseMsg, text: `🤖 Launching subagent: ${title}` });
+              }
+              console.log(`[${channelId}] Tracking child session ${e.properties.sessionID}`);
+            }
+          } else if (e.type === "session.status" && e.properties.sessionID !== entry.sessionID && entry.childSessionIDs.has(e.properties.sessionID)) {
+            const status = (e.properties as { status: { type: string } }).status;
+            const baseMsg = this.createBaseMsg(entry);
+            if (status.type === "idle" && baseMsg !== null) {
+              await entry.stream.send({ ...baseMsg, text: `✅ Subagent finished` });
+            }
+          }
+
+          const isOwnEvent = (sessionID: string | undefined) =>
+            sessionID === entry.sessionID || (sessionID !== undefined && entry.childSessionIDs.has(sessionID));
+
+          if (e.type === "session.error" && isOwnEvent(e.properties.sessionID)) {
             const errObj = e.properties.error;
             let errMsg = "unknown error";
             if (errObj && "data" in errObj && (errObj as { data: { message?: string } }).data?.message) {
@@ -97,13 +122,13 @@ export class OpencodeHandler {
               await entry.stream.send({ ...baseMsg, text: `Error: ${errMsg}` });
             }
             entry.activeMsg = null;
-          } else if (e.type === "permission.asked" && e.properties.sessionID === entry.sessionID) {
+          } else if (e.type === "permission.asked" && isOwnEvent(e.properties.sessionID)) {
             await this.handlePermission(entry, e.properties);
-          } else if (e.type === "question.asked" && e.properties.sessionID === entry.sessionID) {
+          } else if (e.type === "question.asked" && isOwnEvent(e.properties.sessionID)) {
             await this.handleQuestion(entry, e.properties);
-          } else if (e.type === "message.updated" && e.properties.sessionID === entry.sessionID) {
+          } else if (e.type === "message.updated" && isOwnEvent(e.properties.sessionID)) {
             messages.set(e.properties.info.id, e.properties.info);
-          } else if (e.type === "message.part.updated" && e.properties.part.sessionID === entry.sessionID) {
+          } else if (e.type === "message.part.updated" && isOwnEvent(e.properties.part.sessionID)) {
             const part = e.properties.part;
             const text = partToText(part);
             const baseMsg = this.createBaseMsg(entry);
