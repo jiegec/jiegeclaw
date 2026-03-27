@@ -1,6 +1,6 @@
 import { createOpencodeClient } from "@opencode-ai/sdk/v2";
 import type { OpencodeClient, Event, Part, ToolPart, PermissionRequest, QuestionRequest, Message } from "@opencode-ai/sdk/v2";
-import { stringify } from "yaml";
+import { stringify, parse } from "yaml";
 import type { InboundMessage, OutboundMessage } from "./types.js";
 import { loadSessions, saveSession } from "./config.js";
 
@@ -241,11 +241,36 @@ function formatToolPart(p: ToolPart): string | null {
     case "running": return null;
     case "completed": {
       const out = p.state.output;
+      if (p.tool === "todowrite") {
+        const formatted = formatTodoWrite(p.state.title, out);
+        if (formatted !== null) {
+          return formatted;
+        }
+      }
       const truncatedOut = out.length > 200;
       const inputStr = stringify(p.state.input);
       const truncatedInput = inputStr.length > 500 ? inputStr.slice(0, 500) + "..." : inputStr;
       return `✅ [${p.tool}] ${p.state.title}\n${truncatedInput}\nOutput:\n${out.slice(0, 200)}${truncatedOut ? "..." : ""}`;
     }
     case "error": return `❌ [${p.tool}]: ${p.state.error}`;
+  }
+}
+
+function formatTodoWrite(title: string, output: string): string | null {
+  try {
+    const todos = parse(output) as Array<{ content: string; priority: string; status: string }>;
+    const statusIcon: Record<string, string> = {
+      completed: "✅",
+      in_progress: "🔄",
+      pending: "⬜",
+      cancelled: "❌",
+    };
+    const lines = todos.map((t) => {
+      const icon = statusIcon[t.status] ?? "⬜";
+      return `${icon} [${t.priority}] ${t.content}`;
+    });
+    return `✅ [todowrite] ${title}\n\n${lines.join("\n")}`;
+  } catch {
+    return null;
   }
 }

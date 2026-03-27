@@ -74,6 +74,7 @@ export class Server {
     validChoices?: string[],
   ): Promise<string> {
     const id = crypto.randomUUID();
+    console.log(`[${channel.id}] Waiting for reply from ${msg.to}${validChoices ? ` (choices: ${validChoices.join(", ")})` : ""}`);
     await channel.send(msg);
     return new Promise<string>((resolve) => {
       this.pendingReplies.set(id, { resolve, channel, to: msg.to, validChoices });
@@ -86,6 +87,7 @@ export class Server {
       const lower = text.trim().toLowerCase();
       if (pending.validChoices && !pending.validChoices.includes(lower)) continue;
       this.pendingReplies.delete(id);
+      console.log(`[${channel.id}] Resolved pending reply from ${from}: "${lower}"`);
       pending.resolve(lower);
       return id;
     }
