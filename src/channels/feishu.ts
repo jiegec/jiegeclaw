@@ -87,6 +87,7 @@ export class FeishuChannel implements Channel {
             id: message.message_id ?? String(Date.now()),
             from: message.chat_id ?? "",
             text,
+            contextToken: message.message_id ?? undefined,
           });
         },
       }),
@@ -100,14 +101,25 @@ export class FeishuChannel implements Channel {
         appSecret: this.appSecret,
       });
     }
-    await this.client.im.v1.message.create({
-      params: { receive_id_type: "chat_id" },
-      data: {
-        receive_id: msg.to,
-        msg_type: "text",
-        content: JSON.stringify({ text: msg.text }),
-      },
-    });
+
+    if (msg.contextToken) {
+      await this.client.im.v1.message.reply({
+        path: { message_id: msg.contextToken },
+        data: {
+          msg_type: "text",
+          content: JSON.stringify({ text: msg.text }),
+        },
+      });
+    } else {
+      await this.client.im.v1.message.create({
+        params: { receive_id_type: "chat_id" },
+        data: {
+          receive_id: msg.to,
+          msg_type: "text",
+          content: JSON.stringify({ text: msg.text }),
+        },
+      });
+    }
   }
 
   stop(): void {
