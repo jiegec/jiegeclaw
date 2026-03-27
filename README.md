@@ -1,6 +1,6 @@
 # jiegeclaw
 
-A personal AI assistant that bridges OpenCode with WeChat, Feishu, and WeCom.
+A personal AI assistant that bridges OpenCode with Weixin, Feishu, and WeCom.
 
 ## How it works
 

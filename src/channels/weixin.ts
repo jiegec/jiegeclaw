@@ -1,5 +1,5 @@
 /**
- * WeChat (微信) messaging channel using the open platform API.
+ * Weixin (微信) messaging channel using the open platform API.
  *
  * Uses QR code login to authenticate, then polls for updates via long polling
  * (getUpdates API). Messages are sent via the sendMessage API.
@@ -40,7 +40,7 @@ function saveSyncBuf(buf: string): void {
 }
 
 /**
- * Extract text content from a WeChat message's item list.
+ * Extract text content from a Weixin message's item list.
  * Handles both text items and voice-to-text items.
  */
 function extractText(itemList?: MessageItem[]): string {
@@ -89,11 +89,11 @@ export class WeixinChannel implements Channel {
    */
   async onboard(): Promise<void> {
     if (this.token) {
-      console.log(`WeChat already configured. Account: ${this.accountId}`);
+      console.log(`Weixin already configured. Account: ${this.accountId}`);
       return;
     }
 
-    console.log("Starting WeChat QR login...");
+    console.log("Starting Weixin QR login...");
     const startResult = await startWeixinLoginWithQr({
       apiBaseUrl: DEFAULT_BASE_URL,
     });
@@ -103,7 +103,7 @@ export class WeixinChannel implements Channel {
     }
 
     // Display the QR code in the terminal
-    console.log("\nScan the QR code with WeChat:\n");
+    console.log("\nScan the QR code with Weixin:\n");
     await new Promise<void>((resolve) => {
       qrcodeTerminal.generate(startResult.qrcodeUrl!, { small: true }, (qr: string) => {
         console.log(qr);
@@ -133,11 +133,11 @@ export class WeixinChannel implements Channel {
       accountId: this.accountId,
       userId: this.userId || undefined,
     });
-    console.log("\nWeChat connected successfully!");
+    console.log("\nWeixin connected successfully!");
   }
 
   /**
-   * Start polling for WeChat messages using long polling (getUpdates).
+   * Start polling for Weixin messages using long polling (getUpdates).
    * The sync buffer is used to avoid re-processing messages seen in previous polls.
    * Runs until the abort controller is triggered by stop().
    */
@@ -145,7 +145,7 @@ export class WeixinChannel implements Channel {
     this.abortController = new AbortController();
     let getUpdatesBuf = loadSyncBuf();
 
-    console.log(`Listening for WeChat messages (account: ${this.accountId})...`);
+    console.log(`Listening for Weixin messages (account: ${this.accountId})...`);
 
     while (!this.abortController.signal.aborted) {
       try {
@@ -191,7 +191,7 @@ export class WeixinChannel implements Channel {
   }
 
   /**
-   * Send a message to a WeChat user.
+   * Send a message to a Weixin user.
    * Messages are sent as BOT type with FINISH state (no streaming).
    * The contextToken is forwarded for in-thread reply context.
    */
@@ -225,7 +225,7 @@ export class WeixinChannel implements Channel {
   }
 }
 
-/** Check if a WeChat message is a user-initiated message (type 1 with a from_user_id). */
+/** Check if a Weixin message is a user-initiated message (type 1 with a from_user_id). */
 function isUserMessage(msg: WeixinMessage): boolean {
   return msg.message_type === 1 && !!msg.from_user_id;
 }
