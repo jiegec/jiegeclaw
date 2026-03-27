@@ -195,11 +195,11 @@ function partToText(part: Part): string | null {
 function formatToolPart(p: ToolPart): string | null {
   switch (p.state.status) {
     case "pending": return null;
-    case "running": return `⚙️ ${p.tool} with args:\n${stringify(p.state.input)}`;
+    case "running": return null;
     case "completed": {
       const out = p.state.output;
       const truncated = out.length > 200;
-      return `✅ ${p.tool}: ${out.slice(0, 200)}${truncated ? "..." : ""}`;
+      return `✅ ${p.state.title}\n${stringify(p.state.input)}\nOutput:\n${out.slice(0, 200)}${truncated ? "..." : ""}`;
     }
     case "error": return `❌ ${p.tool}: ${p.state.error}`;
   }
