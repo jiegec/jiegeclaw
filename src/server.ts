@@ -8,16 +8,26 @@ export class Server {
     string,
     { resolve: (reply: string) => void; channel: Channel; to: string; validChoices?: string[] }
   > = new Map();
+  private streamMap: Map<string, StreamHandler> = new Map();
 
   constructor(handler: OpencodeHandler) {
     this.handler = handler;
   }
 
   addChannel(channel: Channel): void {
+    if (this.channels.some((c) => c.id === channel.id)) {
+      throw new Error(`Duplicate channel id: ${channel.id}`);
+    }
     this.channels.push(channel);
   }
 
   async start(): Promise<void> {
+    for (const channel of this.channels) {
+      const stream = this.createStreamHandler(channel);
+      this.streamMap.set(channel.id, stream);
+      await this.handler.createSession(channel.id, stream);
+    }
+
     const promises = this.channels.map((channel) =>
       channel.listen(async (msg: InboundMessage) => {
         const pendingId = this.tryResolvePendingReply(msg.text, msg.from, channel);
@@ -27,18 +37,7 @@ export class Server {
           const truncIn = msg.text.length > 100 ? "..." : "";
           console.log(`[${channel.id}] <${msg.from}: ${msg.text.slice(0, 100)}${truncIn}`);
 
-          const stream: StreamHandler = {
-            send: async (outMsg: OutboundMessage) => {
-              await channel.send(outMsg);
-
-              const truncOut = outMsg.text.length > 100 ? "..." : "";
-              console.log(`[${channel.id}] >${msg.from}: ${outMsg.text.slice(0, 100)}${truncOut}`);
-            },
-            waitForReply: (outMsg: OutboundMessage, validChoices?: string[]) =>
-              this.waitForReply(channel, outMsg, validChoices),
-          };
-
-          await this.handler.handle(msg, stream);
+          await this.handler.handle(channel.id, msg);
         } catch (err) {
           console.error(`[${channel.id}] Error handling message from ${msg.from}:`, (err as Error).message);
           try {
@@ -55,6 +54,18 @@ export class Server {
     );
 
     await Promise.all(promises);
+  }
+
+  private createStreamHandler(channel: Channel): StreamHandler {
+    return {
+      send: async (outMsg: OutboundMessage) => {
+        await channel.send(outMsg);
+        const truncOut = outMsg.text.length > 100 ? "..." : "";
+        console.log(`[${channel.id}] >${outMsg.to}: ${outMsg.text.slice(0, 100)}${truncOut}`);
+      },
+      waitForReply: (outMsg: OutboundMessage, validChoices?: string[]) =>
+        this.waitForReply(channel, outMsg, validChoices),
+    };
   }
 
   private async waitForReply(
@@ -82,7 +93,7 @@ export class Server {
   }
 
   stop(): void {
-    this.handler.abort();
+    this.handler.stop();
     for (const [, pending] of this.pendingReplies) {
       pending.resolve("reject");
     }

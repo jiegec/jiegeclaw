@@ -8,10 +8,16 @@ export interface StreamHandler {
   waitForReply(msg: OutboundMessage, validChoices?: string[]): Promise<string>;
 }
 
+interface SessionEntry {
+  sessionID: string;
+  activeMsg: InboundMessage | null;
+  stream: StreamHandler | null;
+  done: Promise<void>;
+}
+
 export class OpencodeHandler {
   private client: OpencodeClient;
-  private sessionID: string | null = null;
-  private eventAbortController: AbortController | null = null;
+  private sessions: Map<string, SessionEntry> = new Map();
 
   constructor(opencodeBaseUrl: string | undefined) {
     this.client = createOpencodeClient(
@@ -19,88 +25,100 @@ export class OpencodeHandler {
     );
   }
 
-  async initialize(): Promise<void> {
+  async createSession(channelId: string, stream: StreamHandler): Promise<void> {
     const session = await this.client.session.create();
-    this.sessionID = session.data?.id ?? null;
-    console.log(`Created OpenCode session ${this.sessionID}`);
+    const sessionID = session.data?.id;
+    if (sessionID === undefined)
+      throw new Error("Failed to create session");
+
+    let resolveDone: () => void;
+    const done = new Promise<void>((r) => { resolveDone = r; });
+
+    const entry: SessionEntry = {
+      sessionID,
+      activeMsg: null,
+      stream,
+      done,
+    };
+    this.sessions.set(channelId, entry);
+
+    console.log(`[${channelId}] Created OpenCode session ${sessionID}`);
+
+    this.runEventLoop(channelId, entry).then(() => resolveDone!());
   }
 
-  private async ensureSession(): Promise<string> {
-    if (!this.sessionID) {
-      await this.initialize();
-    }
-    if (!this.sessionID) {
-      throw new Error("Failed to get or create session");
-    }
-    return this.sessionID;
-  }
+  async handle(channelId: string, msg: InboundMessage): Promise<void> {
+    const entry = this.sessions.get(channelId);
+    if (!entry) throw new Error(`No session for channel ${channelId}`);
 
-  async handle(msg: InboundMessage, stream: StreamHandler): Promise<void> {
-    const sessionID = await this.ensureSession();
+    entry.activeMsg = msg;
 
     await this.client.session.promptAsync({
-      sessionID: sessionID,
+      sessionID: entry.sessionID,
       parts: [{ type: "text" as const, text: msg.text }],
     });
+  }
 
-    const baseMsg: OutboundMessage = { to: msg.from, text: "", contextToken: msg.contextToken };
+  private async runEventLoop(channelId: string, entry: SessionEntry): Promise<void> {
+    while (true) {
+      try {
+        const result = await this.client.event.subscribe();
 
-    try {
-      await this.processEvents(sessionID, stream, baseMsg);
-    } finally {
-      this.eventAbortController = null;
+        for await (const event of result.stream) {
+          const e = event as Event;
+
+          if (e.type === "session.idle" && e.properties.sessionID === entry.sessionID) {
+            entry.activeMsg = null;
+          } else if (e.type === "session.error" && e.properties.sessionID === entry.sessionID) {
+            const errObj = e.properties.error;
+            let errMsg = "unknown error";
+            if (errObj && "data" in errObj && (errObj as { data: { message?: string } }).data?.message) {
+              errMsg = (errObj as { data: { message?: string } }).data.message!;
+            }
+            const msg = entry.activeMsg;
+            const baseMsg = this.createBaseMsg(entry);
+            if (msg && entry.stream && baseMsg) {
+              await entry.stream.send({ ...baseMsg, text: `Error: ${errMsg}` });
+            }
+            entry.activeMsg = null;
+          } else if (e.type === "permission.asked" && e.properties.sessionID === entry.sessionID) {
+            await this.handlePermission(entry, e.properties);
+          } else if (e.type === "question.asked" && e.properties.sessionID === entry.sessionID) {
+            await this.handleQuestion(entry, e.properties);
+          } else if (e.type === "message.part.updated" && e.properties.part.sessionID === entry.sessionID) {
+            const part = e.properties.part;
+            const text = partToText(part);
+            const baseMsg = this.createBaseMsg(entry);
+            if (text && entry.stream && baseMsg) {
+              await entry.stream.send({ ...baseMsg, text });
+            }
+          }
+        }
+      } catch (err) {
+        console.error(`[${channelId}] Event loop error, reconnecting:`, (err as Error).message);
+        await new Promise((r) => setTimeout(r, 1000));
+      }
     }
   }
 
-  private async processEvents(
-    sessionID: string,
-    stream: StreamHandler,
-    baseMsg: OutboundMessage,
-  ): Promise<void> {
-    this.eventAbortController = new AbortController();
-
-    try {
-      const result = await this.client.event.subscribe();
-
-      for await (const event of result.stream) {
-        const e = event as Event;
-
-        if (e.type === "session.idle" && e.properties.sessionID === sessionID) {
-          return;
-        } else if (e.type === "session.error") {
-          const errObj = e.properties.error;
-          let errMsg = "unknown error";
-          if (errObj && "data" in errObj && (errObj as { data: { message?: string } }).data?.message) {
-            errMsg = (errObj as { data: { message?: string } }).data.message!;
-          }
-          await stream.send({ ...baseMsg, text: `Error: ${errMsg}` });
-          return;
-        } else if (e.type === "permission.asked" && e.properties.sessionID === sessionID) {
-          await this.handlePermission(e.properties, stream, baseMsg);
-        } else if (e.type === "question.asked" && e.properties.sessionID === sessionID) {
-          await this.handleQuestion(e.properties, stream, baseMsg);
-        } else if (e.type === "message.part.updated" && e.properties.part.sessionID === sessionID) {
-          const part = e.properties.part;
-          const text = partToText(part);
-          if (text) await stream.send({ ...baseMsg, text });
-        }
-      }
-    } finally {
-      this.eventAbortController = null;
-    }
+  private createBaseMsg(entry: SessionEntry): OutboundMessage | null {
+    if (!entry.activeMsg || !entry.stream) return null;
+    return { to: entry.activeMsg.from, text: "", contextToken: entry.activeMsg.contextToken };
   }
 
   private async handlePermission(
+    entry: SessionEntry,
     permission: PermissionRequest,
-    stream: StreamHandler,
-    baseMsg: OutboundMessage,
   ): Promise<void> {
+    const baseMsg = this.createBaseMsg(entry);
+    if (!baseMsg) return;
+
     const questionText =
       `❓ ${permission.permission}\n\n` +
       `1. Allow once\n2. Always allow\n3. Reject\n\n` +
       `Reply with number or label:`;
 
-    const reply = await stream.waitForReply(
+    const reply = await entry.stream!.waitForReply(
       { ...baseMsg, text: questionText },
       ["once", "always", "reject", "1", "2", "3", "allow once", "always allow", "reject"],
     );
@@ -137,10 +155,12 @@ export class OpencodeHandler {
   }
 
   private async handleQuestion(
+    entry: SessionEntry,
     request: QuestionRequest,
-    stream: StreamHandler,
-    baseMsg: OutboundMessage,
   ): Promise<void> {
+    const baseMsg = this.createBaseMsg(entry);
+    if (!baseMsg) return;
+
     let answers = [];
     for (let question of request.questions) {
       let questionText =
@@ -152,8 +172,7 @@ export class OpencodeHandler {
       }
       questionText += `Reply with label:`;
 
-      // TODO: multiple choices
-      const answer = await stream.waitForReply(
+      const answer = await entry.stream!.waitForReply(
         { ...baseMsg, text: questionText },
         labels,
       );
@@ -170,8 +189,11 @@ export class OpencodeHandler {
     }
   }
 
-  abort(): void {
-    this.eventAbortController?.abort();
+  stop(): void {
+    for (const [, entry] of this.sessions) {
+      entry.activeMsg = null;
+      entry.stream = null;
+    }
   }
 }
 
@@ -198,9 +220,11 @@ function formatToolPart(p: ToolPart): string | null {
     case "running": return null;
     case "completed": {
       const out = p.state.output;
-      const truncated = out.length > 200;
-      return `✅ ${p.state.title}\n${stringify(p.state.input)}\nOutput:\n${out.slice(0, 200)}${truncated ? "..." : ""}`;
+      const truncatedOut = out.length > 200;
+      const inputStr = stringify(p.state.input);
+      const truncatedInput = inputStr.length > 500 ? inputStr.slice(0, 500) + "..." : inputStr;
+      return `✅ [${p.tool}] ${p.state.title}\n${truncatedInput}\nOutput:\n${out.slice(0, 200)}${truncatedOut ? "..." : ""}`;
     }
-    case "error": return `❌ ${p.tool}: ${p.state.error}`;
+    case "error": return `❌ [${p.tool}]: ${p.state.error}`;
   }
 }
