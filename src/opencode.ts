@@ -246,15 +246,15 @@ export class OpencodeHandler {
 function partToText(part: Part): string | null {
   switch (part.type) {
     case "tool": return formatToolPart(part);
-    case "agent": return `🤖 Agent: ${part.name}`;
-    case "subtask": return `📋 Subtask [${part.agent}]: ${part.description}`;
+    case "agent": return `🤖 **Agent:** ${part.name}`;
+    case "subtask": return `📋 **Subtask** \`${part.agent}\`: ${part.description}`;
     case "retry":
-      return `🔁 Retry #${part.attempt}: ${part.error.data.message ?? "unknown error"}`;
-    case "patch": return `📝 Patch ${part.hash}: ${part.files.join(", ")}`;
-    case "file": return `📎 ${part.filename ?? part.url} (${part.mime})`;
-    case "snapshot": return `📸 Snapshot: ${part.snapshot.slice(0, 8)}`;
-    case "compaction": return `📦 Compaction${part.auto ? " (auto)" : ""}`;
-    case "reasoning": return `💭 ${part.text}`;
+      return `🔁 **Retry** #${part.attempt}: ${part.error.data.message ?? "unknown error"}`;
+    case "patch": return `📝 **Patch** \`${part.hash}\`: \`${part.files.join("`, `")}\``;
+    case "file": return `📎 [${part.filename ?? part.url}](${part.url ?? ""}) (${part.mime})`;
+    case "snapshot": return `📸 **Snapshot:** \`${part.snapshot.slice(0, 8)}\``;
+    case "compaction": return `📦 **Compaction**${part.auto ? " (auto)" : ""}`;
+    case "reasoning": return `> 💭 *${part.text}*`;
     case "text": return part.text;
     default: return null;
   }
@@ -275,9 +275,10 @@ function formatToolPart(p: ToolPart): string | null {
       const truncatedOut = out.length > 200;
       const inputStr = stringify(p.state.input);
       const truncatedInput = inputStr.length > 500 ? inputStr.slice(0, 500) + "..." : inputStr;
-      return `✅ [${p.tool}] ${p.state.title}\n${truncatedInput}\nOutput:\n${out.slice(0, 200)}${truncatedOut ? "..." : ""}`;
+      const outPreview = out.slice(0, 200);
+      return `✅ **[${p.tool}]** ${p.state.title}\n\`\`\`\n${truncatedInput}\n\`\`\`\n**Output:**\n\`\`\`\n${outPreview}${truncatedOut ? "..." : ""}\n\`\`\``;
     }
-    case "error": return `❌ [${p.tool}]: ${p.state.error}`;
+    case "error": return `❌ **Error** [${p.tool}]: ${p.state.error}`;
   }
 }
 
@@ -292,9 +293,9 @@ function formatTodoWrite(title: string, output: string): string | null {
     };
     const lines = todos.map((t) => {
       const icon = statusIcon[t.status] ?? "⬜";
-      return `${icon} [${t.priority}] ${t.content}`;
+      return `${icon} **[${t.priority}]** ${t.content}`;
     });
-    return `✅ [todowrite] ${title}\n\n${lines.join("\n")}`;
+    return `✅ **[todowrite]** **${title}**\n\n${lines.join("\n")}`;
   } catch {
     return null;
   }
