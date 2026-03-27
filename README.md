@@ -11,7 +11,7 @@ Two channels are supported right now:
 - **WeChat**: Uses `@tencent-weixin/openclaw-weixin` with QR code login and long-polling
 - **Feishu**: Uses `@larksuiteoapi/node-sdk` with WebSocket push and reply-in-thread support
 
-All channels share a single OpenCode session, so conversations are continuous.
+Each channel uses its own OpenCode session, so conversations are isolated per channel.
 
 ## Setup
 
