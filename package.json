@@ -1,0 +1,41 @@
+{
+  "name": "jiegeclaw",
+  "version": "1.0.0",
+  "description": "Jiegec's personal AI assistant",
+  "homepage": "https://github.com/jiegec/jiegeclaw#readme",
+  "bugs": {
+    "url": "https://github.com/jiegec/jiegeclaw/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/jiegec/jiegeclaw.git"
+  },
+  "license": "MIT",
+  "author": "Jiajie Chen <c@jia.je>",
+  "type": "module",
+  "bin": {
+    "jiegeclaw": "src/main.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "start": "tsx src/main.ts",
+    "dev": "tsx watch src/main.ts"
+  },
+  "dependencies": {
+    "@larksuiteoapi/node-sdk": "^1.60.0",
+    "@opencode-ai/sdk": "^1.3.0",
+    "@tencent-weixin/openclaw-weixin": "^2.0.1",
+    "openclaw": "^2026.3.24",
+    "qrcode-terminal": "^0.12.0",
+    "tsx": "^4.21.0",
+    "yaml": "^2.7.0"
+  },
+  "devDependencies": {
+    "@types/node": "^25.5.0",
+    "@types/qrcode-terminal": "^0.12.0",
+    "typescript": "^6.0.2"
+  },
+  "engines": {
+    "node": ">=22"
+  }
+}
