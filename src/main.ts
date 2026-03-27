@@ -11,6 +11,23 @@ import { Server } from "./server.js";
 import type { Channel } from "./types.js";
 import { stringify } from "yaml";
 
+const SECRET_KEYS = ["token", "userId", "appSecret", "secret"];
+
+function maskSecrets(config: ChannelConfig[]): ChannelConfig[] {
+  return config.map((ch) => {
+    const masked = { ...ch };
+    for (const key of SECRET_KEYS) {
+      if (key in masked && typeof (masked as Record<string, unknown>)[key] === "string") {
+        const val = (masked as Record<string, unknown>)[key] as string;
+        (masked as Record<string, unknown>)[key] = val.length > 4
+          ? val.slice(0, 2) + "*".repeat(val.length - 4) + val.slice(-2)
+          : "****";
+      }
+    }
+    return masked;
+  });
+}
+
 function createChannel(
   cfg: ChannelConfig,
   index: number,
@@ -116,7 +133,7 @@ async function setupChannels(): Promise<void> {
       return;
     }
     console.log("Configured channels:");
-    console.log(stringify(config.channels));
+    console.log(stringify(maskSecrets(config.channels)));
     return;
   }
 

@@ -34,7 +34,7 @@ export function loadConfig(): AppConfig {
 
 export function saveConfig(config: AppConfig): void {
   fs.mkdirSync(CONFIG_DIR, { recursive: true });
-  fs.writeFileSync(CONFIG_PATH, stringify(config), "utf-8");
+  fs.writeFileSync(CONFIG_PATH, stringify(config), { mode: 0o600, encoding: "utf-8" });
 }
 
 interface ChannelSessions {
@@ -62,7 +62,7 @@ export function loadSessions(): Sessions {
 
 export function saveSessions(sessions: Sessions): void {
   fs.mkdirSync(CONFIG_DIR, { recursive: true });
-  fs.writeFileSync(SESSIONS_PATH, stringify(sessions), "utf-8");
+  fs.writeFileSync(SESSIONS_PATH, stringify(sessions), { mode: 0o600, encoding: "utf-8" });
 }
 
 export function getLastDir(channelId: string, sessions: Sessions): string | undefined {
