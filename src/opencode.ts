@@ -1,5 +1,5 @@
 import { createOpencodeClient } from "@opencode-ai/sdk/v2";
-import type { OpencodeClient, Event, Part, ToolPart, PermissionRequest, QuestionRequest } from "@opencode-ai/sdk/v2";
+import type { OpencodeClient, Event, Part, ToolPart, PermissionRequest, QuestionRequest, Message } from "@opencode-ai/sdk/v2";
 import { stringify } from "yaml";
 import type { InboundMessage, OutboundMessage } from "./types.js";
 
@@ -12,7 +12,6 @@ interface SessionEntry {
   sessionID: string;
   activeMsg: InboundMessage | null;
   stream: StreamHandler;
-  done: Promise<void>;
 }
 
 export class OpencodeHandler {
@@ -31,20 +30,16 @@ export class OpencodeHandler {
     if (sessionID === undefined)
       throw new Error("Failed to create session");
 
-    let resolveDone: () => void;
-    const done = new Promise<void>((r) => { resolveDone = r; });
-
     const entry: SessionEntry = {
       sessionID,
       activeMsg: null,
       stream,
-      done,
     };
     this.sessions.set(channelId, entry);
 
     console.log(`[${channelId}] Created OpenCode session ${sessionID}`);
 
-    this.runEventLoop(channelId, entry).then(() => resolveDone!());
+    this.runEventLoop(channelId, entry);
   }
 
   async handle(channelId: string, msg: InboundMessage): Promise<void> {
@@ -60,6 +55,7 @@ export class OpencodeHandler {
   }
 
   private async runEventLoop(channelId: string, entry: SessionEntry): Promise<void> {
+    const messages: Map<string, Message> = new Map();
     while (true) {
       try {
         const result = await this.client.event.subscribe();
@@ -82,12 +78,18 @@ export class OpencodeHandler {
             await this.handlePermission(entry, e.properties);
           } else if (e.type === "question.asked" && e.properties.sessionID === entry.sessionID) {
             await this.handleQuestion(entry, e.properties);
+          } else if (e.type === "message.updated" && e.properties.sessionID === entry.sessionID) {
+            messages.set(e.properties.info.id, e.properties.info);
           } else if (e.type === "message.part.updated" && e.properties.part.sessionID === entry.sessionID) {
             const part = e.properties.part;
             const text = partToText(part);
             const baseMsg = this.createBaseMsg(entry);
-            if (text !== null && baseMsg !== null) {
+            const role = messages.get(e.properties.part.messageID)?.role;
+            if (role === "assistant" && text !== null && text.length > 0 && baseMsg !== null) {
               await entry.stream.send({ ...baseMsg, text });
+            }
+            if (text !== null && text.length > 0) {
+              messages.delete(e.properties.part.messageID);
             }
           }
         }
