@@ -30,7 +30,7 @@ export class Server {
 
     const promises = this.channels.map((channel) =>
       channel.listen(async (msg: InboundMessage) => {
-        const pendingId = this.tryResolvePendingReply(msg.text, msg.from, channel);
+        const pendingId = await this.tryResolvePendingReply(msg.text, msg.from, channel);
         if (pendingId) return;
 
         try {
@@ -81,11 +81,16 @@ export class Server {
     });
   }
 
-  private tryResolvePendingReply(text: string, from: string, channel: Channel): string | null {
+  private async tryResolvePendingReply(text: string, from: string, channel: Channel): Promise<string | null> {
     for (const [id, pending] of this.pendingReplies) {
       if (pending.channel !== channel || pending.to !== from) continue;
       const lower = text.trim().toLowerCase();
-      if (pending.validChoices && !pending.validChoices.includes(lower)) continue;
+      if (pending.validChoices && !pending.validChoices.includes(lower)) {
+        console.log(`[${channel.id}] Invalid reply from ${from}: "${lower}" (valid: ${pending.validChoices.join(", ")})`);
+        const prompt = `Invalid choice. Valid options: ${pending.validChoices.join(", ")}\nPlease try again:`;
+        await channel.send({ to: pending.to, text: prompt, contextToken: "" });
+        return id;
+      }
       this.pendingReplies.delete(id);
       console.log(`[${channel.id}] Resolved pending reply from ${from}: "${lower}"`);
       pending.resolve(lower);
