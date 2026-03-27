@@ -50,13 +50,13 @@ opencode:
 
 ```bash
 # Feishu: follow the prompts to enter App ID and App Secret
-npm run start -- setup add feishu
+npm start setup add feishu
 
 # WeChat: scan the QR code displayed in the terminal
-npm run start -- setup add weixin
+npm start setup add weixin
 
 # WeCom: follow the prompts to enter Bot ID and Secret
-npm run start -- setup add wecom
+npm start setup add wecom
 ```
 
 ### Start the bot
@@ -68,7 +68,7 @@ npm start
 ### List configured channels
 
 ```bash
-npm run start -- setup
+npm start setup
 ```
 
 ## License
