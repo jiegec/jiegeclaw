@@ -5,13 +5,11 @@ import type { InboundMessage } from "./types.js";
 export class OpencodeHandler {
   private client: OpencodeClient;
   private sessionId: string | null = null;
-  private directory: string;
 
-  constructor(opencodeBaseUrl: string | undefined, directory: string) {
+  constructor(opencodeBaseUrl: string | undefined) {
     this.client = createOpencodeClient(
       opencodeBaseUrl ? { baseUrl: opencodeBaseUrl } : undefined,
     );
-    this.directory = directory;
   }
 
   async initialize(): Promise<void> {

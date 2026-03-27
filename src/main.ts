@@ -62,7 +62,6 @@ async function startServer(): Promise<void> {
 
   const opencode = new OpencodeHandler(
     config.opencode?.baseUrl ?? "http://127.0.0.1:4096",
-    config.opencode?.directory ?? process.cwd(),
   );
 
   const server = new Server(opencode);

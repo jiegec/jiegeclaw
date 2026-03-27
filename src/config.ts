@@ -13,7 +13,6 @@ export type ChannelConfig = FeishuChannelConfig | WeixinChannelConfig | { type: 
 
 export interface OpenCodeConfig {
   baseUrl?: string;
-  directory?: string;
 }
 
 export interface AppConfig {
