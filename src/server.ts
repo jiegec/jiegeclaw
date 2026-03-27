@@ -48,8 +48,23 @@ export class Server {
               await this.handler.cd(channel.id, args);
               await channel.send({ to: msg.from, text: `📁 Switched to ${args}`, contextToken: msg.contextToken });
               return;
+            } else if (cmd === "status") {
+              const status = this.handler.getStatus(channel.id);
+              const lines: string[] = [];
+              if (status.directory) {
+                lines.push(`- **Directory:** \`${status.directory}\``);
+              } else {
+                lines.push("- **Directory:** not set");
+              }
+              if (status.sessionID) {
+                lines.push(`- **Session:** \`${status.sessionID.slice(0, 8)}\``);
+              } else {
+                lines.push("- **Session:** not connected");
+              }
+              await channel.send({ to: msg.from, text: "Status:\n\n" + lines.join("\n"), contextToken: msg.contextToken });
+              return;
             } else if (cmd === "help") {
-              await channel.send({ to: msg.from, text: "**Available commands:**\n\n- `/cd <path>`: Switch to a different project directory\n- `/help`: Show this help message", contextToken: msg.contextToken });
+              await channel.send({ to: msg.from, text: "**Available commands:**\n\n- `/cd <path>`: Switch to a different project directory\n- `/status`: Show current session status\n- `/help`: Show this help message", contextToken: msg.contextToken });
               return;
             }
 

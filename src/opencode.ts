@@ -49,6 +49,15 @@ export class OpencodeHandler {
     return getLastDir(channelId, loadSessions()) !== undefined;
   }
 
+  getStatus(channelId: string): { directory?: string; sessionID?: string } {
+    const state = this.channelStates.get(channelId);
+    if (!state) {
+      const lastDir = getLastDir(channelId, loadSessions());
+      return { directory: lastDir };
+    }
+    return { directory: state.directory, sessionID: state.sessionID };
+  }
+
   async ensureSession(channelId: string): Promise<void> {
     const existing = this.channelStates.get(channelId);
     if (existing?.server) return;
