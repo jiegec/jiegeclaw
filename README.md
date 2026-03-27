@@ -15,7 +15,7 @@ All channels share a single OpenCode session, so conversations are continuous.
 
 ## Setup
 
-Requires Node.js >= 22 and a running OpenCode server.
+Requires Node.js >= 22 and a running OpenCode server. Make sure to start OpenCode separately in your project directory using `opencode serve` before launching jiegeclaw.
 
 ```bash
 npm install
