@@ -1,3 +1,13 @@
+/**
+ * WeChat (微信) messaging channel using the open platform API.
+ *
+ * Uses QR code login to authenticate, then polls for updates via long polling
+ * (getUpdates API). Messages are sent via the sendMessage API.
+ *
+ * A sync buffer is persisted to disk to avoid re-processing messages
+ * across restarts.
+ */
+
 import type { Channel, InboundMessage, OutboundMessage } from "../types.js";
 import { startWeixinLoginWithQr, waitForWeixinLogin } from "@tencent-weixin/openclaw-weixin/src/auth/login-qr.js";
 import { getUpdates, sendMessage as sendMessageApi } from "@tencent-weixin/openclaw-weixin/src/api/api.js";
@@ -11,8 +21,10 @@ import path from "node:path";
 import os from "node:os";
 
 const DATA_DIR = path.join(os.homedir(), ".jiegeclaw");
+/** Path to the sync buffer file, used to track which messages have already been processed. */
 const SYNC_BUF_PATH = path.join(DATA_DIR, "weixin-sync-buf.txt");
 
+/** Load the sync buffer from disk, or return empty string if it doesn't exist. */
 function loadSyncBuf(): string {
   try {
     return fs.readFileSync(SYNC_BUF_PATH, "utf-8");
@@ -21,11 +33,16 @@ function loadSyncBuf(): string {
   }
 }
 
+/** Persist the sync buffer to disk so we can resume polling after restarts. */
 function saveSyncBuf(buf: string): void {
   fs.mkdirSync(DATA_DIR, { recursive: true });
   fs.writeFileSync(SYNC_BUF_PATH, buf, "utf-8");
 }
 
+/**
+ * Extract text content from a WeChat message's item list.
+ * Handles both text items and voice-to-text items.
+ */
 function extractText(itemList?: MessageItem[]): string {
   if (!itemList?.length) return "";
   for (const item of itemList) {
@@ -65,6 +82,11 @@ export class WeixinChannel implements Channel {
     }
   }
 
+  /**
+   * Interactive setup: perform QR code login if no token is stored.
+   * Displays a QR code in the terminal and waits for the user to scan it.
+   * The resulting token, accountId, and userId are saved to config.
+   */
   async onboard(): Promise<void> {
     if (this.token) {
       console.log(`WeChat already configured. Account: ${this.accountId}`);
@@ -80,6 +102,7 @@ export class WeixinChannel implements Channel {
       throw new Error(`Failed to get QR code: ${startResult.message}`);
     }
 
+    // Display the QR code in the terminal
     console.log("\nScan the QR code with WeChat:\n");
     await new Promise<void>((resolve) => {
       qrcodeTerminal.generate(startResult.qrcodeUrl!, { small: true }, (qr: string) => {
@@ -90,6 +113,7 @@ export class WeixinChannel implements Channel {
       });
     });
 
+    // Wait for the user to scan the QR code and approve the login
     console.log("\nWaiting for scan result...");
     const waitResult = await waitForWeixinLogin({
       sessionKey: startResult.sessionKey,
@@ -112,6 +136,11 @@ export class WeixinChannel implements Channel {
     console.log("\nWeChat connected successfully!");
   }
 
+  /**
+   * Start polling for WeChat messages using long polling (getUpdates).
+   * The sync buffer is used to avoid re-processing messages seen in previous polls.
+   * Runs until the abort controller is triggered by stop().
+   */
   async listen(onMessage: (msg: InboundMessage) => void): Promise<void> {
     this.abortController = new AbortController();
     let getUpdatesBuf = loadSyncBuf();
@@ -133,11 +162,13 @@ export class WeixinChannel implements Channel {
           continue;
         }
 
+        // Persist the sync buffer to avoid re-processing on restart
         if (resp.get_updates_buf) {
           saveSyncBuf(resp.get_updates_buf);
           getUpdatesBuf = resp.get_updates_buf;
         }
 
+        // Process each new message
         for (const raw of resp.msgs ?? []) {
           if (!isUserMessage(raw)) continue;
 
@@ -159,6 +190,11 @@ export class WeixinChannel implements Channel {
     }
   }
 
+  /**
+   * Send a message to a WeChat user.
+   * Messages are sent as BOT type with FINISH state (no streaming).
+   * The contextToken is forwarded for in-thread reply context.
+   */
   async send(msg: OutboundMessage): Promise<void> {
     const clientId = crypto.randomUUID();
     const itemList = msg.text
@@ -183,15 +219,18 @@ export class WeixinChannel implements Channel {
     });
   }
 
+  /** Abort the long-polling loop. */
   stop(): void {
     this.abortController?.abort();
   }
 }
 
+/** Check if a WeChat message is a user-initiated message (type 1 with a from_user_id). */
 function isUserMessage(msg: WeixinMessage): boolean {
   return msg.message_type === 1 && !!msg.from_user_id;
 }
 
+/** Sleep for the specified duration, rejecting early if the abort signal fires. */
 function sleep(ms: number, signal: AbortSignal): Promise<void> {
   return new Promise((resolve, reject) => {
     const t = setTimeout(resolve, ms);

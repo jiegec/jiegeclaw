@@ -1,3 +1,11 @@
+/**
+ * WeCom (企业微信) AI bot messaging channel.
+ *
+ * Connects to WeCom via the @wecom/aibot-node-sdk using WebSocket for
+ * bidirectional communication. Supports streaming replies via replyStream
+ * and markdown-formatted messages.
+ */
+
 import type { Channel, InboundMessage, OutboundMessage } from "../types.js";
 import AiBot from "@wecom/aibot-node-sdk";
 import { generateReqId, type WsFrame, type TextMessage } from "@wecom/aibot-node-sdk";
@@ -24,6 +32,10 @@ export class WecomChannel implements Channel {
     this.onConfigUpdate = onConfigUpdate;
   }
 
+  /**
+   * Interactive setup: prompt for Bot ID and Secret if not already configured.
+   * Credentials are saved to config via the onConfigUpdate callback.
+   */
   async onboard(): Promise<void> {
     if (this.botId && this.secret) {
       console.log("WeCom already configured. Bot:", this.botId);
@@ -49,6 +61,11 @@ export class WecomChannel implements Channel {
     console.log("\nWeCom connected successfully!");
   }
 
+  /**
+   * Start listening for WeCom messages via WebSocket.
+   * The WebSocket client connects and dispatches text messages to the callback.
+   * The returned promise never resolves (blocks until stop() is called).
+   */
   async listen(onMessage: (msg: InboundMessage) => void): Promise<void> {
     const wsClient = new AiBot.WSClient({
       botId: this.botId!,
@@ -64,7 +81,9 @@ export class WecomChannel implements Channel {
       const body = frame.body as TextMessage;
       if (!body.text?.content?.trim()) return;
 
+      // Use the WeCom user ID as the sender, falling back to chat ID
       const from = body.from?.userid ?? body.chatid ?? "";
+      // Store the full WsFrame as contextToken for reply streaming
       const contextToken = frame;
 
       onMessage({
@@ -77,23 +96,32 @@ export class WecomChannel implements Channel {
 
     wsClient.connect();
 
+    // Block forever — the listener runs until stop() disconnects the WebSocket
     return new Promise(() => {});
   }
 
+  /**
+   * Send a message to a WeCom user.
+   * If contextToken is set (a WsFrame), uses replyStream for in-thread streaming.
+   * Otherwise, sends a markdown message to the specified user/chat.
+   */
   async send(msg: OutboundMessage): Promise<void> {
     if (this.wsClient === undefined) return;
 
     if (msg.contextToken) {
+      // Stream reply to the original message frame
       await this.wsClient.replyStream(msg.contextToken, generateReqId("stream"), msg.text, true);
       return;
     }
 
+    // Send a new standalone markdown message
     await this.wsClient.sendMessage(msg.to, {
       msgtype: "markdown",
       markdown: { content: msg.text },
     });
   }
 
+  /** Disconnect the WeCom WebSocket client. */
   stop(): void {
     this.wsClient?.disconnect();
   }

@@ -8,7 +8,7 @@ The architecture is straightforward: messaging channels receive user messages, f
 
 Three channels are supported right now:
 
-- **WeChat**: Uses `@tencent-weixin/openclaw-weixin` with QR code login and long-polling
+- **Weixin**: Uses `@tencent-weixin/openclaw-weixin` with QR code login and long-polling
 - **Feishu**: Uses `@larksuiteoapi/node-sdk` with WebSocket push and reply-in-thread support
 - **WeCom**: Uses `@wecom/aibot-node-sdk` with WebSocket and streaming reply support
 
@@ -52,7 +52,7 @@ You don't need to edit this file manually — just use the CLI setup commands.
 # Feishu: follow the prompts to enter App ID and App Secret
 npm start setup add feishu
 
-# WeChat: scan the QR code displayed in the terminal
+# Weixin: scan the QR code displayed in the terminal
 npm start setup add weixin
 
 # WeCom: follow the prompts to enter Bot ID and Secret

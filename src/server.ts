@@ -1,9 +1,25 @@
+/**
+ * Core message routing server.
+ *
+ * The Server class ties channels to the OpencodeHandler:
+ * - Routes incoming channel messages to opencode sessions (or handles slash commands)
+ * - Implements the StreamHandler interface so opencode can send messages back through channels
+ * - Manages pending reply state for permission requests and questions
+ *   (when opencode needs a user response, the Server holds the promise
+ *    and resolves it when the user's reply comes back through the channel)
+ */
+
 import type { Channel, InboundMessage, OutboundMessage } from "./types.js";
 import { OpencodeHandler, type StreamHandler } from "./opencode.js";
 
 export class Server {
   private channels: Channel[] = [];
   private handler: OpencodeHandler;
+  /**
+   * Map of pending reply IDs to their resolution state.
+   * Used when opencode asks a question or permission and we need to wait
+   * for the user's reply to come through the channel message listener.
+   */
   private pendingReplies: Map<
     string,
     { resolve: (reply: string) => void; channel: Channel; to: string; validChoices?: string[] }
@@ -13,6 +29,7 @@ export class Server {
     this.handler = handler;
   }
 
+  /** Register a channel. Throws if a channel with the same ID already exists. */
   addChannel(channel: Channel): void {
     if (this.channels.some((c) => c.id === channel.id)) {
       throw new Error(`Duplicate channel id: ${channel.id}`);
@@ -20,14 +37,21 @@ export class Server {
     this.channels.push(channel);
   }
 
+  /**
+   * Start the server: wire up stream handlers for each channel and begin
+   * listening for incoming messages on all channels concurrently.
+   */
   async start(): Promise<void> {
+    // Create and register stream handlers for each channel
     for (const channel of this.channels) {
       const stream = this.createStreamHandler(channel);
       this.handler.setStream(channel.id, stream);
     }
 
+    // Start listening on all channels and process messages as they arrive
     const promises = this.channels.map((channel) =>
       channel.listen(async (msg: InboundMessage) => {
+        // First, check if this message resolves a pending reply (permission/question)
         const pendingId = await this.tryResolvePendingReply(msg.text, msg.from, channel);
         if (pendingId) return;
 
@@ -35,6 +59,7 @@ export class Server {
           const truncIn = msg.text.length > 100 ? "..." : "";
           console.log(`[${channel.id}] <${msg.from}: ${msg.text.slice(0, 100)}${truncIn}`);
 
+          // Handle slash commands
           const slashMatch = msg.text.match(/^\/(\S+)\s*(.*)/);
           if (slashMatch) {
             const cmd = slashMatch[1];
@@ -72,12 +97,14 @@ export class Server {
             return;
           }
 
+          // Require a working directory before forwarding to opencode
           if (!this.handler.hasDirectory(channel.id)) {
             console.log(`[${channel.id}] No directory set, prompting user`);
             await channel.send({ to: msg.from, text: "No directory set. Use `/cd <path>` to select a project directory.", contextToken: msg.contextToken });
             return;
           }
 
+          // Ensure an opencode session is running, then forward the message
           await this.handler.ensureSession(channel.id);
 
           await this.handler.handle(channel.id, msg);
@@ -99,18 +126,33 @@ export class Server {
     await Promise.all(promises);
   }
 
+  /**
+   * Create a StreamHandler for a channel.
+   * This is the bridge between opencode events and channel message sends.
+   */
   private createStreamHandler(channel: Channel): StreamHandler {
     return {
+      /** Send a message through the channel and log it. */
       send: async (outMsg: OutboundMessage) => {
         await channel.send(outMsg);
         const truncOut = outMsg.text.length > 100 ? "..." : "";
         console.log(`[${channel.id}] >${outMsg.to}: ${outMsg.text.slice(0, 100)}${truncOut}`);
       },
+      /**
+       * Send a message and wait for a user reply.
+       * Creates a pending entry that will be resolved by tryResolvePendingReply
+       * when the user's next message comes in.
+       */
       waitForReply: (outMsg: OutboundMessage, validChoices?: string[]) =>
         this.waitForReply(channel, outMsg, validChoices),
     };
   }
 
+  /**
+   * Send a message to the channel and return a promise that resolves
+   * when the user replies. The promise is stored in pendingReplies
+   * and resolved by tryResolvePendingReply.
+   */
   private async waitForReply(
     channel: Channel,
     msg: OutboundMessage,
@@ -124,6 +166,12 @@ export class Server {
     });
   }
 
+  /**
+   * Try to resolve a pending reply with the incoming message.
+   * If the message is from the right user on the right channel and matches
+   * the valid choices (if any), the pending promise is resolved.
+   * Returns the pending ID if resolved, null otherwise.
+   */
   private async tryResolvePendingReply(text: string, from: string, channel: Channel): Promise<string | null> {
     for (const [id, pending] of this.pendingReplies) {
       if (pending.channel !== channel || pending.to !== from) continue;
@@ -141,6 +189,7 @@ export class Server {
     return null;
   }
 
+  /** Stop all channels and resolve any pending replies with "reject". */
   stop(): void {
     this.handler.stop();
     for (const [, pending] of this.pendingReplies) {

@@ -1,3 +1,13 @@
+/**
+ * Configuration and session persistence for jiegeclaw.
+ *
+ * Two YAML files are stored under ~/.jiegeclaw/:
+ * - config.yaml: Channel configurations (Feishu, WeCom, Weixin credentials)
+ * - sessions.yaml: Per-channel session state (working directory, session IDs)
+ *
+ * Both files are created with mode 0o600 (owner-only read/write) to protect secrets.
+ */
+
 import fs from "node:fs";
 import path from "node:path";
 import os from "node:os";
@@ -11,16 +21,26 @@ const CONFIG_PATH = path.join(CONFIG_DIR, "config.yaml");
 const SESSIONS_PATH = path.join(CONFIG_DIR, "sessions.yaml");
 
 
+/**
+ * Union type of all supported channel configurations.
+ * Falls back to a generic type for unknown channel types.
+ */
 export type ChannelConfig = FeishuChannelConfig | WeixinChannelConfig | WecomChannelConfig | { type: string;[key: string]: unknown };
 
+/** Top-level application configuration containing all channels. */
 export interface AppConfig {
   channels: ChannelConfig[];
 }
 
+/** Returns the default (empty) configuration. */
 function defaultConfig(): AppConfig {
   return { channels: [] };
 }
 
+/**
+ * Load application config from ~/.jiegeclaw/config.yaml.
+ * Returns a default empty config if the file doesn't exist or is malformed.
+ */
 export function loadConfig(): AppConfig {
   try {
     const raw = fs.readFileSync(CONFIG_PATH, "utf-8");
@@ -32,18 +52,34 @@ export function loadConfig(): AppConfig {
   }
 }
 
+/**
+ * Save application config to ~/.jiegeclaw/config.yaml.
+ * Creates the config directory if it doesn't exist.
+ * File is written with mode 0o600 to protect secrets.
+ */
 export function saveConfig(config: AppConfig): void {
   fs.mkdirSync(CONFIG_DIR, { recursive: true });
   fs.writeFileSync(CONFIG_PATH, stringify(config), { mode: 0o600, encoding: "utf-8" });
 }
 
+/**
+ * Per-channel session data, tracking the last used directory
+ * and a mapping of directory -> session ID for quick reuse.
+ */
 interface ChannelSessions {
+  /** The most recently used working directory for this channel. */
   lastDir?: string;
+  /** Map of working directory path -> opencode session ID. */
   dirs: Record<string, string>;
 }
 
+/** Map of channel ID -> channel session data. */
 type Sessions = Record<string, ChannelSessions>;
 
+/**
+ * Load session state from ~/.jiegeclaw/sessions.yaml.
+ * Returns an empty object if the file doesn't exist or is malformed.
+ */
 export function loadSessions(): Sessions {
   try {
     const raw = fs.readFileSync(SESSIONS_PATH, "utf-8");
@@ -60,19 +96,35 @@ export function loadSessions(): Sessions {
   }
 }
 
+/**
+ * Save session state to ~/.jiegeclaw/sessions.yaml.
+ * File is written with mode 0o600.
+ */
 export function saveSessions(sessions: Sessions): void {
   fs.mkdirSync(CONFIG_DIR, { recursive: true });
   fs.writeFileSync(SESSIONS_PATH, stringify(sessions), { mode: 0o600, encoding: "utf-8" });
 }
 
+/**
+ * Get the last used working directory for a channel.
+ * Returns undefined if no directory has been set.
+ */
 export function getLastDir(channelId: string, sessions: Sessions): string | undefined {
   return sessions[channelId]?.lastDir;
 }
 
+/**
+ * Get the saved opencode session ID for a specific channel + directory combination.
+ * Returns undefined if no session exists for that directory.
+ */
 export function getSessionIdForDir(channelId: string, directory: string, sessions: Sessions): string | undefined {
   return sessions[channelId]?.dirs[directory];
 }
 
+/**
+ * Update the session state for a channel, recording the current directory
+ * and its associated opencode session ID. Persists to disk immediately.
+ */
 export function updateChannelSession(channelId: string, directory: string, sessionID: string, sessions: Sessions): Sessions {
   if (!sessions[channelId]) {
     sessions[channelId] = { lastDir: directory, dirs: {} };

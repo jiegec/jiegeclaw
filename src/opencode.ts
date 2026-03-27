@@ -1,3 +1,17 @@
+/**
+ * Opencode session manager.
+ *
+ * Manages per-channel opencode sessions by spawning a dedicated opencode server
+ * process for each channel's working directory. Each server runs on its own port
+ * and sessions are persisted across restarts so conversations can be resumed.
+ *
+ * Key responsibilities:
+ * - Spawning and managing opencode server child processes
+ * - Creating/reusing opencode sessions per channel+directory
+ * - Subscribing to the event stream and forwarding assistant messages to channels
+ * - Handling permission requests and questions by delegating to the channel's reply mechanism
+ */
+
 import { spawn, type ChildProcess } from "node:child_process";
 import { createOpencodeClient } from "@opencode-ai/sdk/v2";
 import type { OpencodeClient, Event, Part, ToolPart, PermissionRequest, QuestionRequest, Message } from "@opencode-ai/sdk/v2";
@@ -10,32 +24,58 @@ import {
   updateChannelSession,
 } from "./config.js";
 
+/**
+ * Interface for sending messages and waiting for user replies on a channel.
+ * Implemented by the Server class, which bridges opencode events to channel sends.
+ */
 export interface StreamHandler {
+  /** Send a message to the channel. */
   send(msg: OutboundMessage): Promise<void>;
+  /**
+   * Send a message and wait for a reply from the user.
+   * Optionally restrict valid replies to a set of choices.
+   */
   waitForReply(msg: OutboundMessage, validChoices?: string[]): Promise<string>;
 }
 
+/** Represents a running opencode server child process. */
 interface ServerProcess {
   proc: ChildProcess;
+  /** The HTTP URL the server is listening on. */
   url: string;
+  /** Kill the server process. */
   close(): void;
 }
 
+/** Per-channel state tracking the active session and server process. */
 interface ChannelState {
+  /** The stream handler for sending messages back to the channel. */
   stream: StreamHandler;
+  /** The working directory for this channel's opencode session. */
   directory: string;
+  /** The running opencode server process. */
   server: ServerProcess;
+  /** The opencode SDK client connected to the server. */
   client: OpencodeClient;
+  /** The active opencode session ID. */
   sessionID: string;
+  /** The inbound message currently being processed (used for reply addressing). */
   activeMsg: InboundMessage | null;
+  /** Set of subagent (child) session IDs spawned by the main session. */
   childSessionIDs: Set<string>;
+  /** Controller to abort the event loop when switching directories or stopping. */
   abortController: AbortController;
 }
 
 export class OpencodeHandler {
   private channelStates: Map<string, ChannelState> = new Map();
+  /** Counter for assigning unique ports to each spawned server. */
   private portCounter = 4096;
 
+  /**
+   * Set or update the stream handler for a channel.
+   * Called during server startup before the channel starts listening.
+   */
   setStream(channelId: string, stream: StreamHandler): void {
     const existing = this.channelStates.get(channelId);
     if (existing) {
@@ -45,10 +85,12 @@ export class OpencodeHandler {
     }
   }
 
+  /** Check if a channel has a configured working directory (from saved sessions). */
   hasDirectory(channelId: string): boolean {
     return getLastDir(channelId, loadSessions()) !== undefined;
   }
 
+  /** Get the current status of a channel (directory and optional session ID). */
   getStatus(channelId: string): { directory?: string; sessionID?: string } {
     const state = this.channelStates.get(channelId);
     if (!state) {
@@ -58,6 +100,11 @@ export class OpencodeHandler {
     return { directory: state.directory, sessionID: state.sessionID };
   }
 
+  /**
+   * Ensure a session exists for the channel.
+   * If the channel already has an active server, this is a no-op.
+   * Otherwise, it changes to the last used directory.
+   */
   async ensureSession(channelId: string): Promise<void> {
     const existing = this.channelStates.get(channelId);
     if (existing?.server) return;
@@ -67,11 +114,17 @@ export class OpencodeHandler {
     await this.cd(channelId, lastDir);
   }
 
+  /**
+   * Change the working directory for a channel.
+   * Tears down any existing server, spawns a new opencode server in the target
+   * directory, and creates or reuses a session. Session state is persisted.
+   */
   async cd(channelId: string, directory: string): Promise<void> {
     const existing = this.channelStates.get(channelId);
     const stream = existing?.stream;
     if (!stream) throw new Error(`No stream for channel ${channelId}`);
 
+    // Tear down any existing server for this channel
     if (existing?.server) {
       console.log(`[${channelId}] Tearing down old server in ${existing.directory}`);
       existing.abortController.abort();
@@ -79,15 +132,18 @@ export class OpencodeHandler {
       existing.server.close();
     }
 
+    // Check if we have a saved session for this directory
     const sessions = loadSessions();
     const savedSessionID = getSessionIdForDir(channelId, directory, sessions);
 
+    // Spawn a new opencode server on a unique port
     const port = this.portCounter++;
     console.log(`[${channelId}] Spawning opencode serve on port ${port}...`);
     const server = await this.spawnServer(directory, port);
     console.log(`[${channelId}] Server started at ${server.url}`);
     const client = createOpencodeClient({ baseUrl: server.url });
 
+    // Try to reuse the saved session, or create a new one
     let sessionID: string;
     if (savedSessionID !== undefined) {
       try {
@@ -110,6 +166,7 @@ export class OpencodeHandler {
       console.log(`[${channelId}] Created new session ${sessionID}`);
     }
 
+    // Persist the session mapping
     updateChannelSession(channelId, directory, sessionID, sessions);
 
     this.channelStates.set(channelId, {
@@ -127,6 +184,11 @@ export class OpencodeHandler {
     this.runEventLoop(channelId);
   }
 
+  /**
+   * Send a user prompt to the opencode session.
+   * The prompt is processed asynchronously; the event loop will handle
+   * streaming the response back to the channel.
+   */
   async handle(channelId: string, msg: InboundMessage): Promise<void> {
     const state = this.channelStates.get(channelId);
     if (!state) throw new Error(`No session for channel ${channelId}`);
@@ -139,6 +201,11 @@ export class OpencodeHandler {
     });
   }
 
+  /**
+   * Spawn an opencode server child process in the given directory.
+   * Waits up to 15 seconds for the server to start and output its listening URL.
+   * Rejects if the server exits or times out.
+   */
   private spawnServer(directory: string, port: number): Promise<ServerProcess> {
     return new Promise((resolve, reject) => {
       const proc = spawn("opencode", [`serve`, `--hostname=127.0.0.1`, `--port=${port}`], {
@@ -154,6 +221,7 @@ export class OpencodeHandler {
       let output = "";
       const onOutput = (chunk: Buffer) => {
         output += chunk.toString();
+        // Parse the server URL from the startup output
         const match = output.match(/opencode server listening on\s+(https?:\/\/[^\s]+)/);
         if (match) {
           clearTimeout(timeout);
@@ -176,16 +244,30 @@ export class OpencodeHandler {
     });
   }
 
+  /**
+   * Build an outbound message template from the currently active inbound message.
+   * Returns null if there's no active message (e.g., between requests).
+   */
   private createBaseMsg(state: ChannelState): OutboundMessage | null {
     if (!state.activeMsg) return null;
     return { to: state.activeMsg.from, text: "", contextToken: state.activeMsg.contextToken };
   }
 
+  /**
+   * Main event loop for a channel's opencode session.
+   * Subscribes to the opencode event stream and dispatches events:
+   * - Streams assistant message parts back to the channel
+   * - Handles permission requests and questions by prompting the user
+   * - Tracks subagent (child) sessions and notifies the channel of their status
+   *
+   * Automatically reconnects on errors with a 1-second delay.
+   */
   private async runEventLoop(channelId: string): Promise<void> {
     const state = this.channelStates.get(channelId);
     if (!state) return;
 
     const { client, sessionID, abortController, stream } = state;
+    // Track full messages to determine the role (user vs assistant) of parts
     const messages: Map<string, Message> = new Map();
 
     while (!abortController.signal.aborted) {
@@ -198,6 +280,7 @@ export class OpencodeHandler {
 
           const e = event as Event;
 
+          // Track subagent sessions spawned by this channel's main session
           if (e.type === "session.updated") {
             const info = e.properties.info;
             if (info.parentID === sessionID && e.properties.sessionID !== sessionID) {
@@ -211,6 +294,7 @@ export class OpencodeHandler {
               console.log(`[${channelId}] Tracking child session ${e.properties.sessionID}`);
             }
           } else if (e.type === "session.status" && e.properties.sessionID !== sessionID && state.childSessionIDs.has(e.properties.sessionID)) {
+            // Notify when a subagent finishes its work
             const status = (e.properties as { status: { type: string } }).status;
             const baseMsg = this.createBaseMsg(state);
             if (status.type === "idle" && baseMsg !== null) {
@@ -218,9 +302,11 @@ export class OpencodeHandler {
             }
           }
 
+          // Helper to check if an event belongs to this channel's session tree
           const isOwnEvent = (sid: string | undefined) =>
             sid === sessionID || (sid !== undefined && state.childSessionIDs.has(sid));
 
+          // Handle session errors (forward to user)
           if (e.type === "session.error" && isOwnEvent(e.properties.sessionID)) {
             const errObj = e.properties.error;
             let errMsg = "unknown error";
@@ -234,19 +320,25 @@ export class OpencodeHandler {
             state.activeMsg = null;
             console.error(`[${channelId}] Session error: ${errMsg}`);
           } else if (e.type === "permission.asked" && isOwnEvent(e.properties.sessionID)) {
+            // Handle permission requests (ask user to approve/deny tool execution)
             await this.handlePermission(channelId, client, stream, state, e.properties);
           } else if (e.type === "question.asked" && isOwnEvent(e.properties.sessionID)) {
+            // Handle questions (ask user to choose from options)
             await this.handleQuestion(channelId, client, stream, state, e.properties);
           } else if (e.type === "message.updated" && isOwnEvent(e.properties.sessionID)) {
+            // Track full message metadata for role detection
             messages.set(e.properties.info.id, e.properties.info);
           } else if (e.type === "message.part.updated" && isOwnEvent(e.properties.part.sessionID)) {
+            // Stream assistant message parts back to the channel
             const part = e.properties.part;
             const text = partToText(part);
             const baseMsg = this.createBaseMsg(state);
             const role = messages.get(e.properties.part.messageID)?.role;
+            // Only forward assistant messages (not user messages echoing back)
             if (role === "assistant" && text !== null && text.length > 0 && baseMsg !== null) {
               await stream.send({ ...baseMsg, text });
             }
+            // Clear cached message once we've processed parts from it
             if (text !== null && text.length > 0) {
               messages.delete(e.properties.part.messageID);
             }
@@ -260,6 +352,10 @@ export class OpencodeHandler {
     console.log(`[${channelId}] Event loop exited`);
   }
 
+  /**
+   * Handle a permission request from opencode (e.g., tool approval).
+   * Presents the permission question to the user and waits for a response.
+   */
   private async handlePermission(
     channelId: string,
     client: OpencodeClient,
@@ -297,6 +393,7 @@ export class OpencodeHandler {
     }
   }
 
+  /** Map a user's text reply to a permission choice. */
   private mapReplyToChoice(reply: string): "once" | "always" | "reject" | null {
     switch (reply) {
       case "once":
@@ -315,6 +412,10 @@ export class OpencodeHandler {
     }
   }
 
+  /**
+   * Handle a question event from opencode (e.g., asking the user to choose
+   * between multiple options). Presents each question and waits for a response.
+   */
   private async handleQuestion(
     channelId: string,
     client: OpencodeClient,
@@ -325,6 +426,7 @@ export class OpencodeHandler {
     const baseMsg = this.createBaseMsg(state);
     if (!baseMsg) return;
 
+    // Process each question in the request sequentially
     let answers = [];
     for (let question of request.questions) {
       let questionText =
@@ -354,6 +456,7 @@ export class OpencodeHandler {
     }
   }
 
+  /** Stop all opencode sessions and kill all server processes. */
   stop(): void {
     for (const [channelId, state] of this.channelStates) {
       console.log(`[${channelId}] Stopping session ${state.sessionID}`);
@@ -364,6 +467,10 @@ export class OpencodeHandler {
   }
 }
 
+/**
+ * Convert an opencode message part to a human-readable text representation.
+ * Returns null for parts that shouldn't be displayed (e.g., pending/running tools).
+ */
 function partToText(part: Part): string | null {
   switch (part.type) {
     case "tool": return formatToolPart(part);
@@ -381,12 +488,19 @@ function partToText(part: Part): string | null {
   }
 }
 
+/**
+ * Format a tool execution part for display.
+ * Pending and running tools return null (not yet ready to display).
+ * Completed tools show the tool name, title, input, and output.
+ * Errored tools show the error message.
+ */
 function formatToolPart(p: ToolPart): string | null {
   switch (p.state.status) {
     case "pending": return null;
     case "running": return null;
     case "completed": {
       const out = p.state.output;
+      // Special formatting for todowrite tool: show a checklist instead of raw YAML
       if (p.tool === "todowrite") {
         const formatted = formatTodoWrite(p.state.title, out);
         if (formatted !== null) {
@@ -403,6 +517,10 @@ function formatToolPart(p: ToolPart): string | null {
   }
 }
 
+/**
+ * Special formatting for the todowrite tool.
+ * Parses the YAML output into a checklist with status icons and priority labels.
+ */
 function formatTodoWrite(title: string, output: string): string | null {
   try {
     const todos = parse(output) as Array<{ content: string; priority: string; status: string }>;

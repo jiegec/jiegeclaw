@@ -1,3 +1,13 @@
+/**
+ * CLI entry point for jiegeclaw.
+ *
+ * Supports two commands:
+ * - `start`: Load config, create channels, and start the message routing server.
+ * - `setup`: Interactive configuration for adding new channels.
+ *
+ * Sensitive fields (tokens, secrets) are masked when displaying config.
+ */
+
 import { loadConfig, saveConfig } from "./config.js";
 import type { ChannelConfig } from "./config.js";
 import { WeixinChannel } from "./channels/weixin.js";
@@ -11,8 +21,13 @@ import { Server } from "./server.js";
 import type { Channel } from "./types.js";
 import { stringify } from "yaml";
 
+/** Config field names that contain secrets and should be masked in output. */
 const SECRET_KEYS = ["token", "userId", "appSecret", "secret"];
 
+/**
+ * Mask sensitive fields in channel configs for safe display.
+ * Replaces all but the first 2 and last 2 characters with asterisks.
+ */
 function maskSecrets(config: ChannelConfig[]): ChannelConfig[] {
   return config.map((ch) => {
     const masked = { ...ch };
@@ -28,6 +43,11 @@ function maskSecrets(config: ChannelConfig[]): ChannelConfig[] {
   });
 }
 
+/**
+ * Factory function to create a Channel instance based on the config type.
+ * Passes through the config update callback so channels can persist credentials
+ * during interactive setup.
+ */
 function createChannel(
   cfg: ChannelConfig,
   index: number,
@@ -45,6 +65,10 @@ function createChannel(
   }
 }
 
+/**
+ * Create a config updater function that mutates the in-memory config array
+ * and persists changes to disk after each update.
+ */
 function makeConfigUpdater(config: ChannelConfig[]): (index: number, update: Record<string, unknown>) => void {
   return (index, update) => {
     config[index] = { ...config[index], ...update };
@@ -71,6 +95,11 @@ async function main(): Promise<void> {
   }
 }
 
+/**
+ * Start the message routing server.
+ * Loads config, creates an OpencodeHandler and Server, initializes all channels,
+ * and starts listening. Handles SIGINT/SIGTERM for graceful shutdown.
+ */
 async function startServer(): Promise<void> {
   const config = loadConfig();
 
@@ -101,12 +130,18 @@ async function startServer(): Promise<void> {
   await server.start();
 }
 
+/**
+ * Interactive channel setup.
+ * - `jiegeclaw setup`: List all configured channels (with masked secrets).
+ * - `jiegeclaw setup add <type>`: Add a new channel by running its onboard flow.
+ */
 async function setupChannels(): Promise<void> {
   const config = loadConfig();
   const action = process.argv[3];
   const type = process.argv[4];
 
   if (action === "add" && type) {
+    // Create a temporary channel config and run its onboard flow
     const base: ChannelConfig = { type };
     const tempConfig = [...config.channels, base];
     const updater = makeConfigUpdater(tempConfig as ChannelConfig[]);
@@ -120,6 +155,7 @@ async function setupChannels(): Promise<void> {
       process.exit(1);
     }
 
+    // Save the updated config (with credentials filled in by onboard)
     const appConfig = loadConfig();
     appConfig.channels = tempConfig;
     saveConfig(appConfig);
@@ -127,6 +163,7 @@ async function setupChannels(): Promise<void> {
   }
 
   if (!action) {
+    // List configured channels
     if (!config.channels.length) {
       console.log("No channels configured. Add one with:");
       console.log("  jiegeclaw setup add <type>");

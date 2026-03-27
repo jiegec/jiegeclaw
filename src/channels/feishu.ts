@@ -1,3 +1,11 @@
+/**
+ * Feishu (Lark) messaging channel.
+ *
+ * Connects to Feishu via the Lark SDK using WebSocket events for receiving
+ * messages and the REST API for sending replies. Messages are formatted
+ * as Feishu "post" type with markdown content.
+ */
+
 import type { Channel, InboundMessage, OutboundMessage } from "../types.js";
 import * as Lark from "@larksuiteoapi/node-sdk";
 import type { FeishuChannelConfig } from "./feishu-types.js";
@@ -7,6 +15,7 @@ export class FeishuChannel implements Channel {
   readonly id: string;
   private appId = "";
   private appSecret = "";
+  /** Lazily initialized REST client for sending messages. */
   private client?: Lark.Client;
   private onConfigUpdate: (index: number, update: Partial<FeishuChannelConfig>) => void;
   private channelIndex: number;
@@ -23,6 +32,10 @@ export class FeishuChannel implements Channel {
     this.onConfigUpdate = onConfigUpdate;
   }
 
+  /**
+   * Interactive setup: prompt for App ID and App Secret if not already configured.
+   * Credentials are saved to config via the onConfigUpdate callback.
+   */
   async onboard(): Promise<void> {
     if (this.appId && this.appSecret) {
       console.log("Feishu already configured. App:", this.appId);
@@ -48,6 +61,11 @@ export class FeishuChannel implements Channel {
     console.log("\nFeishu connected successfully!");
   }
 
+  /**
+   * Start listening for incoming Feishu messages via WebSocket.
+   * Parses the message content (which comes as JSON with a "text" field)
+   * and forwards text messages to the onMessage callback.
+   */
   async listen(onMessage: (msg: InboundMessage) => void): Promise<void> {
     const wsClient = new Lark.WSClient({
       appId: this.appId,
@@ -61,6 +79,7 @@ export class FeishuChannel implements Channel {
           const { message } = data;
           if (!message?.content) return;
 
+          // Feishu message content is JSON-encoded; try to extract the text field
           let text: string;
           try {
             const parsed = JSON.parse(message.content);
@@ -82,6 +101,12 @@ export class FeishuChannel implements Channel {
     });
   }
 
+  /**
+   * Send a message to a Feishu chat.
+   * If contextToken is set, replies in-thread to the original message.
+   * Otherwise, sends a new message to the chat specified by msg.to.
+   * Messages are formatted as "post" type with markdown content.
+   */
   async send(msg: OutboundMessage): Promise<void> {
     if (this.client === undefined) {
       this.client = new Lark.Client({
@@ -90,6 +115,7 @@ export class FeishuChannel implements Channel {
       });
     }
 
+    // Build the post content with markdown formatting
     const content = JSON.stringify({
       en_us: {
         content: [[{ tag: "md", text: msg.text }]],
@@ -97,6 +123,7 @@ export class FeishuChannel implements Channel {
     });
 
     if (msg.contextToken) {
+      // Reply in-thread to the original message
       await this.client.im.v1.message.reply({
         path: { message_id: msg.contextToken },
         data: {
@@ -105,6 +132,7 @@ export class FeishuChannel implements Channel {
         },
       });
     } else {
+      // Send a new standalone message to the chat
       await this.client.im.v1.message.create({
         params: { receive_id_type: "chat_id" },
         data: {
@@ -116,5 +144,6 @@ export class FeishuChannel implements Channel {
     }
   }
 
+  /** No-op: Feishu WSClient doesn't have a clean stop method. */
   stop(): void { }
 }
