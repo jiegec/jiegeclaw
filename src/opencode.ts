@@ -2,6 +2,7 @@ import { createOpencodeClient } from "@opencode-ai/sdk/v2";
 import type { OpencodeClient, Event, Part, ToolPart, PermissionRequest, QuestionRequest, Message } from "@opencode-ai/sdk/v2";
 import { stringify } from "yaml";
 import type { InboundMessage, OutboundMessage } from "./types.js";
+import { loadSessions, saveSession } from "./config.js";
 
 export interface StreamHandler {
   send(msg: OutboundMessage): Promise<void>;
@@ -25,10 +26,30 @@ export class OpencodeHandler {
   }
 
   async createSession(channelId: string, stream: StreamHandler): Promise<void> {
-    const session = await this.client.session.create();
-    const sessionID = session.data?.id;
-    if (sessionID === undefined)
-      throw new Error("Failed to create session");
+    const sessions = loadSessions();
+    const savedSessionID = sessions[channelId];
+    let sessionID: string;
+
+    if (savedSessionID !== undefined) {
+      try {
+        await this.client.session.get({ sessionID: savedSessionID });
+        sessionID = savedSessionID;
+        console.log(`[${channelId}] Reusing existing OpenCode session ${sessionID}`);
+      } catch {
+        console.log(`[${channelId}] Saved session ${savedSessionID} not found, creating new one`);
+        const session = await this.client.session.create();
+        const id = session.data?.id;
+        if (id === undefined) throw new Error("Failed to create session");
+        sessionID = id;
+      }
+    } else {
+      const session = await this.client.session.create();
+      const id = session.data?.id;
+      if (id === undefined) throw new Error("Failed to create session");
+      sessionID = id;
+    }
+
+    saveSession(channelId, sessionID);
 
     const entry: SessionEntry = {
       sessionID,
@@ -37,7 +58,9 @@ export class OpencodeHandler {
     };
     this.sessions.set(channelId, entry);
 
-    console.log(`[${channelId}] Created OpenCode session ${sessionID}`);
+    if (sessionID !== savedSessionID) {
+      console.log(`[${channelId}] Created OpenCode session ${sessionID}`);
+    }
 
     this.runEventLoop(channelId, entry);
   }
