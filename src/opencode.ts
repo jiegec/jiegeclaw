@@ -1,5 +1,6 @@
 import { createOpencodeClient } from "@opencode-ai/sdk/v2";
 import type { OpencodeClient, Event, Part, ToolPart, PermissionRequest, QuestionRequest } from "@opencode-ai/sdk/v2";
+import { stringify } from "yaml";
 import type { InboundMessage, OutboundMessage } from "./types.js";
 
 export interface StreamHandler {
@@ -198,8 +199,12 @@ function partToText(part: Part): string | null {
 function formatToolPart(p: ToolPart): string | null {
   switch (p.state.status) {
     case "pending": return null;
-    case "running": return `⚙️ ${p.tool} with args ${JSON.stringify(p.state.input)}`;
-    case "completed": return `✅ ${p.tool}: ${p.state.output !== undefined ? p.state.output.slice(0, 200) : "(no output)"}`;
+    case "running": return `⚙️ ${p.tool} with args:\n${stringify(p.state.input)}`;
+    case "completed": {
+      const out = p.state.output;
+      const truncated = out.length > 200;
+      return `✅ ${p.tool}: ${out.slice(0, 200)}${truncated ? "..." : ""}`;
+    }
     case "error": return `❌ ${p.tool}: ${p.state.error}`;
   }
 }
