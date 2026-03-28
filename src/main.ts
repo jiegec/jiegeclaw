@@ -2,12 +2,14 @@
  * CLI entry point for jiegeclaw.
  *
  * Supports two commands:
- * - `start`: Load config, create channels, and start the message routing server.
+ * - `start`: Launch the server as a managed child process, auto-restarting on crashes
+ *   and restart signals (/restart). The parent process supervises the child.
  * - `setup`: Interactive configuration for adding new channels.
  *
  * Sensitive fields (tokens, secrets) are masked when displaying config.
  */
 
+import { spawn } from "node:child_process";
 import { loadConfig, saveConfig } from "./config.js";
 import type { ChannelConfig } from "./config.js";
 import { WeixinChannel } from "./channels/weixin.js";
@@ -16,8 +18,6 @@ import { FeishuChannel } from "./channels/feishu.js";
 import type { FeishuChannelConfig } from "./channels/feishu-types.js";
 import { WecomChannel } from "./channels/wecom.js";
 import type { WecomChannelConfig } from "./channels/wecom-types.js";
-import { OpencodeHandler } from "./opencode.js";
-import { Server } from "./server.js";
 import type { Channel } from "./types.js";
 import { stringify } from "yaml";
 
@@ -83,7 +83,7 @@ const command = process.argv[2] ?? "start";
 async function main(): Promise<void> {
   switch (command) {
     case "start":
-      await startServer();
+      await supervise();
       break;
     case "setup":
       await setupChannels();
@@ -95,39 +95,52 @@ async function main(): Promise<void> {
   }
 }
 
+/** Exit code used by the child to signal a restart. */
+const RESTART_EXIT_CODE = 42;
+
 /**
- * Start the message routing server.
- * Loads config, creates an OpencodeHandler and Server, initializes all channels,
- * and starts listening. Handles SIGINT/SIGTERM for graceful shutdown.
+ * Parent process: spawn and supervise the server child process.
+ * Relaunches the child on restart signals (exit code 42) and crashes.
  */
-async function startServer(): Promise<void> {
-  const config = loadConfig();
+function supervise(): Promise<void> {
+  return new Promise((resolve) => {
+    let child: ReturnType<typeof spawn>;
 
-  if (!config.channels.length) {
-    console.error("No channels configured. Run `jiegeclaw setup` first.");
-    process.exit(1);
-  }
+    function launch() {
+      child = spawn("tsx", ["src/server.ts"], {
+        stdio: "inherit",
+        env: process.env,
+      });
 
-  const updater = makeConfigUpdater(config.channels as ChannelConfig[]);
+      child.on("exit", (code) => {
+        if (code === RESTART_EXIT_CODE) {
+          console.log("[supervisor] Child requested restart, relaunching...");
+          launch();
+        } else if (code === 0) {
+          console.log("[supervisor] Child exited cleanly.");
+          resolve();
+        } else {
+          console.error(`[supervisor] Child crashed with code ${code}, relaunching in 3s...`);
+          setTimeout(launch, 3000);
+        }
+      });
 
-  const opencode = new OpencodeHandler();
-  const server = new Server(opencode);
+      child.on("error", (err) => {
+        console.error(`[supervisor] Failed to spawn child: ${err.message}`);
+        setTimeout(launch, 3000);
+      });
+    }
 
-  for (let i = 0; i < config.channels.length; i++) {
-    const channel = createChannel(config.channels[i], i, updater);
-    server.addChannel(channel);
-  }
+    // Forward SIGINT/SIGTERM to child for graceful shutdown
+    process.on("SIGINT", () => {
+      child?.kill("SIGINT");
+    });
+    process.on("SIGTERM", () => {
+      child?.kill("SIGTERM");
+    });
 
-  console.log(`Starting jiegeclaw with ${config.channels.length} channel(s)...`);
-
-  const cleanup = () => {
-    console.log("\nShutting down...");
-    process.exit(0);
-  };
-  process.on("SIGINT", cleanup);
-  process.on("SIGTERM", cleanup);
-
-  await server.start();
+    launch();
+  });
 }
 
 /**
