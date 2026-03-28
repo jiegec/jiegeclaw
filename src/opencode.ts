@@ -325,8 +325,12 @@ export class OpencodeHandler {
    * Automatically reconnects on errors with a 1-second delay.
    */
   private async runEventLoop(channelId: string): Promise<void> {
+    console.log(`[${channelId}] Event loop started`);
     const state = this.channelStates.get(channelId);
-    if (!state) return;
+    if (!state) {
+      console.log(`[${channelId}] Event loop exiting: no state`);
+      return;
+    }
 
     const { client, sessionID, abortController, stream } = state;
     // Track full messages to determine the role (user vs assistant) of parts
@@ -517,15 +521,35 @@ export class OpencodeHandler {
 
   /** Stop all opencode sessions and kill all server processes. */
   async stop(): Promise<void> {
+    const stopPromises: Promise<void>[] = [];
     for (const [channelId, state] of this.channelStates) {
       console.log(`[${channelId}] Stopping session ${state.sessionID}`);
       state.activeMsg = undefined;
       if (state.client !== undefined) {
         await state.client!.global.dispose();
         state.abortController!.abort();
-        state.server!.close();
+
+        const server = state.server!;
+        console.log(`[${channelId}] Killing opencode server process (PID: ${server.proc.pid})`);
+        server.close();
+        // Wait for the process to actually exit
+        const waitPromise = new Promise<void>((resolve) => {
+          server.proc.on("exit", () => {
+            console.log(`[${channelId}] Opencode server process exited`);
+            resolve();
+          });
+          // Also resolve if process already exited
+          if (server.proc.exitCode !== null) {
+            console.log(`[${channelId}] Opencode server process already exited (code: ${server.proc.exitCode})`);
+            resolve();
+          }
+        });
+        stopPromises.push(waitPromise);
       }
     }
+
+    await Promise.all(stopPromises);
+    console.log("All opencode server processes stopped");
   }
 }
 
