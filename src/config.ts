@@ -20,7 +20,7 @@ import { FeishuChannel } from "./channels/feishu.js";
 import { WecomChannel } from "./channels/wecom.js";
 import type { Channel } from "./types.js";
 
-const CONFIG_DIR = path.join(os.homedir(), ".jiegeclaw");
+export const CONFIG_DIR = path.join(os.homedir(), ".jiegeclaw");
 const CONFIG_PATH = path.join(CONFIG_DIR, "config.yaml");
 const SESSIONS_PATH = path.join(CONFIG_DIR, "sessions.yaml");
 

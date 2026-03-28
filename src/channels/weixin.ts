@@ -17,12 +17,10 @@ import { DEFAULT_BASE_URL } from "@tencent-weixin/openclaw-weixin/src/auth/accou
 import type { WeixinChannelConfig } from "./weixin-types.js";
 import qrcodeTerminal from "qrcode-terminal";
 import fs from "node:fs";
+import { CONFIG_DIR } from "../config.js";
 import path from "node:path";
-import os from "node:os";
 
-const DATA_DIR = path.join(os.homedir(), ".jiegeclaw");
-/** Path to the sync buffer file, used to track which messages have already been processed. */
-const SYNC_BUF_PATH = path.join(DATA_DIR, "weixin-sync-buf.txt");
+const SYNC_BUF_PATH = path.join(CONFIG_DIR, "weixin-sync-buf.txt");
 
 /** Load the sync buffer from disk, or return empty string if it doesn't exist. */
 function loadSyncBuf(): string {
@@ -35,7 +33,7 @@ function loadSyncBuf(): string {
 
 /** Persist the sync buffer to disk so we can resume polling after restarts. */
 function saveSyncBuf(buf: string): void {
-  fs.mkdirSync(DATA_DIR, { recursive: true });
+  fs.mkdirSync(CONFIG_DIR, { recursive: true });
   fs.writeFileSync(SYNC_BUF_PATH, buf, "utf-8");
 }
 
