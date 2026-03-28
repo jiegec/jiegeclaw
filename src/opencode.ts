@@ -186,7 +186,7 @@ export class OpencodeHandler {
     }
 
     // Persist the session mapping
-    updateChannelSession(channelId, directory, sessionID, sessions);
+    updateChannelSession(channelId, directory, sessionID);
 
     this.channelStates.set(channelId, {
       stream,
@@ -215,8 +215,7 @@ export class OpencodeHandler {
     state.activeMsg = msg;
 
     // Persist the sender's ID so we can notify them on session restore after restart
-    const sessions = loadSessions();
-    updateChannelSession(channelId, state.directory!, state.sessionID!, sessions, msg.from);
+    updateChannelSession(channelId, state.directory!, state.sessionID!, msg.from);
 
     await state.client!.session.promptAsync({
       sessionID: state.sessionID!,
@@ -300,6 +299,7 @@ export class OpencodeHandler {
 
         for await (const event of result.stream) {
           if (abortController!.signal.aborted) break;
+          const baseMsg = this.createBaseMsg(state);
 
           const e = event as Event;
 
@@ -309,7 +309,6 @@ export class OpencodeHandler {
             if (info.parentID === sessionID && e.properties.sessionID !== sessionID) {
               const isNew = !state.childSessionIDs!.has(e.properties.sessionID);
               state.childSessionIDs!.add(e.properties.sessionID);
-              const baseMsg = this.createBaseMsg(state);
               if (isNew && baseMsg !== undefined) {
                 const title = info.title ?? "subagent";
                 await stream.send({ ...baseMsg, text: `🤖 Launching subagent: **${title}**` });
@@ -319,7 +318,6 @@ export class OpencodeHandler {
           } else if (e.type === "session.status" && e.properties.sessionID !== sessionID && state.childSessionIDs!.has(e.properties.sessionID)) {
             // Notify when a subagent finishes its work
             const status = (e.properties as { status: { type: string } }).status;
-            const baseMsg = this.createBaseMsg(state);
             if (status.type === "idle" && baseMsg !== undefined) {
               await stream.send({ ...baseMsg, text: `✅ **Subagent finished**` });
             }
@@ -336,7 +334,6 @@ export class OpencodeHandler {
             if (errObj && "data" in errObj && (errObj as { data: { message?: string } }).data?.message) {
               errMsg = (errObj as { data: { message?: string } }).data.message!;
             }
-            const baseMsg = this.createBaseMsg(state);
             if (baseMsg !== undefined) {
               await stream.send({ ...baseMsg, text: `Error: ${errMsg}` });
             }
@@ -355,7 +352,6 @@ export class OpencodeHandler {
             // Stream assistant message parts back to the channel
             const part = e.properties.part;
             const text = partToText(part);
-            const baseMsg = this.createBaseMsg(state);
             const role = messages.get(e.properties.part.messageID)?.role;
             // Only forward assistant messages (not user messages echoing back)
             if (role === "assistant" && text !== undefined && text.length > 0 && baseMsg !== undefined) {

@@ -134,7 +134,8 @@ export function getSessionIdForDir(channelId: string, directory: string, session
  * and its associated opencode session ID. Persists to disk immediately.
  * Optionally records the sender's user ID for session restore notifications.
  */
-export function updateChannelSession(channelId: string, directory: string, sessionID: string, sessions: Sessions, from?: string): Sessions {
+export function updateChannelSession(channelId: string, directory: string, sessionID: string, from?: string): void {
+  const sessions = loadSessions();
   if (!sessions[channelId]) {
     sessions[channelId] = { lastDir: directory, dirs: {} };
   }
@@ -143,5 +144,4 @@ export function updateChannelSession(channelId: string, directory: string, sessi
   if (from !== undefined) ch.lastFrom = from;
   ch.dirs[directory] = sessionID;
   saveSessions(sessions);
-  return sessions;
 }
