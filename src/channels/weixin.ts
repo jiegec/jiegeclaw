@@ -17,9 +17,10 @@ import { DEFAULT_BASE_URL } from "@tencent-weixin/openclaw-weixin/src/auth/accou
 import type { WeixinChannelConfig } from "./weixin-types.js";
 import qrcodeTerminal from "qrcode-terminal";
 import fs from "node:fs";
-import { CONFIG_DIR } from "../config.js";
+import os from "node:os";
 import path from "node:path";
 
+const CONFIG_DIR = path.join(os.homedir(), ".jiegeclaw");
 const SYNC_BUF_PATH = path.join(CONFIG_DIR, "weixin-sync-buf.txt");
 
 /** Load the sync buffer from disk, or return empty string if it doesn't exist. */

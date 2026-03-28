@@ -110,6 +110,18 @@ export class OpencodeHandler {
   }
 
   /**
+   * Helper to create a new opencode session and return its ID.
+   * Throws if session creation fails.
+   */
+  private async createSession(channelId: string, client: OpencodeClient): Promise<string> {
+    const session = await client.session.create();
+    const sessionID = session.data?.id;
+    if (sessionID === undefined) throw new Error("Failed to create session");
+    console.log(`[${channelId}] Created new session ${sessionID}`);
+    return sessionID;
+  }
+
+  /**
    * Reset the session for a channel by creating a new opencode session.
    * The old session is abandoned (not deleted) and a new one is created.
    * Returns the new session ID.
@@ -118,18 +130,26 @@ export class OpencodeHandler {
     const state = this.channelStates.get(channelId);
     if (!state || !state.client || !state.directory) throw new Error(`No active session for channel ${channelId}`);
 
-    // Create a new session
-    const session = await state.client.session.create();
-    const newSessionID = session.data?.id;
-    if (newSessionID === undefined) throw new Error("Failed to create new session");
+    // Tear down the old event loop
+    state.abortController?.abort();
+    state.activeMsg = undefined;
 
-    // Update the channel state with the new session ID
+    // Create a new session
+    const newSessionID = await this.createSession(channelId, state.client);
+
+    // Update the channel state with the new session ID and reset child sessions
     state.sessionID = newSessionID;
+    state.childSessionIDs = new Set();
+    state.abortController = new AbortController();
 
     // Persist the new session mapping
     updateChannelSession(channelId, state.directory, newSessionID);
 
     console.log(`[${channelId}] Reset to new session ${newSessionID}`);
+
+    // Launch a new event loop for the new session
+    this.runEventLoop(channelId);
+
     return newSessionID;
   }
 
@@ -194,18 +214,10 @@ export class OpencodeHandler {
         console.log(`[${channelId}] Reusing session ${sessionID} for ${directory}`);
       } catch {
         console.log(`[${channelId}] Saved session ${savedSessionID} not found, creating new one`);
-        const session = await client.session.create();
-        const id = session.data?.id;
-        if (id === undefined) throw new Error("Failed to create session");
-        sessionID = id;
-        console.log(`[${channelId}] Created new session ${sessionID}`);
+        sessionID = await this.createSession(channelId, client);
       }
     } else {
-      const session = await client.session.create();
-      const id = session.data?.id;
-      if (id === undefined) throw new Error("Failed to create session");
-      sessionID = id;
-      console.log(`[${channelId}] Created new session ${sessionID}`);
+      sessionID = await this.createSession(channelId, client);
     }
 
     // Persist the session mapping
