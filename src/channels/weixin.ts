@@ -60,7 +60,7 @@ export class WeixinChannel implements Channel {
   private channelIndex: number;
 
   private token?;
-  private accountId;
+  private accountId?;
   private userId?;
   private abortController?: AbortController;
 
@@ -75,8 +75,8 @@ export class WeixinChannel implements Channel {
 
     if (config.token) {
       this.token = config.token;
-      this.accountId = config.accountId ?? "";
-      this.userId = config.userId ?? "";
+      this.accountId = config.accountId;
+      this.userId = config.userId;
     }
   }
 
@@ -124,12 +124,12 @@ export class WeixinChannel implements Channel {
 
     this.token = waitResult.botToken;
     this.accountId = waitResult.accountId;
-    this.userId = waitResult.userId ?? "";
+    this.userId = waitResult.userId;
 
     this.onConfigUpdate(this.channelIndex, {
       token: this.token,
       accountId: this.accountId,
-      userId: this.userId || undefined,
+      userId: this.userId,
     });
     console.log("\nWeixin connected successfully!");
   }

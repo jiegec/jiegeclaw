@@ -91,13 +91,7 @@ export function loadSessions(): Sessions {
   try {
     const raw = fs.readFileSync(SESSIONS_PATH, "utf-8");
     const sessions = parse(raw) as Sessions;
-    if (typeof sessions !== "object") return {};
-    for (const ch of Object.values(sessions)) {
-      if (!ch || typeof ch !== "object" || typeof (ch as ChannelSessions).dirs !== "object") {
-        return {};
-      }
-    }
-    return sessions;
+    return typeof sessions === "object" && sessions !== null ? sessions : {};
   } catch {
     return {};
   }

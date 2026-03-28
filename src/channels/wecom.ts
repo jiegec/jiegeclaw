@@ -67,12 +67,11 @@ export class WecomChannel implements Channel {
 
   ensureClient() {
     if (this.wsClient === undefined) {
-      const wsClient = new AiBot.WSClient({
+      this.wsClient = new AiBot.WSClient({
         botId: this.botId!,
         secret: this.secret!,
       });
-      this.wsClient = wsClient;
-      this.wsClient!.connect();
+      this.wsClient.connect();
     }
   }
 

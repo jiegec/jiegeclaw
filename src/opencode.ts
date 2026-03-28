@@ -446,11 +446,11 @@ export class OpencodeHandler {
 
     // Process each question in the request sequentially
     let answers = [];
-    for (let question of request.questions) {
+    for (const question of request.questions) {
       let questionText =
         `❓ **${question.header}**\n\n${question.question}\n\n`;
-      let labels = [];
-      for (let option of question.options) {
+      const labels = [];
+      for (const option of question.options) {
         questionText += `- **${option.label}**: ${option.description}\n`;
         labels.push(option.label);
       }
