@@ -204,7 +204,7 @@ export class OpencodeHandler {
     const port = this.portCounter++;
     console.log(`[${channelId}] Spawning opencode serve on port ${port}...`);
     const server = await this.spawnServer(directory, port);
-    console.log(`[${channelId}] Server started at ${server.url}`);
+    console.log(`[${channelId}] Server started at ${server.url} (PID: ${server.proc.pid})`);
     const client = createOpencodeClient({ baseUrl: server.url });
 
     // Try to reuse the saved session, or create a new one
@@ -271,6 +271,8 @@ export class OpencodeHandler {
   private spawnServer(directory: string, port: number): Promise<ServerProcess> {
     return new Promise((resolve, reject) => {
       const proc = spawn("opencode", [`serve`, `--hostname=127.0.0.1`, `--port=${port}`], {
+        // Create in a separate process group
+        detached: true,
         cwd: directory,
         env: process.env,
       });
@@ -289,7 +291,12 @@ export class OpencodeHandler {
           clearTimeout(timeout);
           proc.stdout?.off("data", onOutput);
           proc.stderr?.off("data", onOutput);
-          resolve({ proc, url: match[1], close() { proc.kill(); } });
+          resolve({
+            proc, url: match[1], close() {
+              // Kill the whole process group
+              process.kill(-proc.pid!, "SIGINT");
+            }
+          });
         }
       };
 

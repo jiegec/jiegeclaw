@@ -90,14 +90,6 @@ function supervise(): Promise<void> {
       });
     }
 
-    // Forward SIGINT/SIGTERM to child for graceful shutdown
-    process.on("SIGINT", () => {
-      child?.kill("SIGINT");
-    });
-    process.on("SIGTERM", () => {
-      child?.kill("SIGTERM");
-    });
-
     launch();
   });
 }
