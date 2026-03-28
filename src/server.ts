@@ -10,7 +10,7 @@
  */
 
 import type { Channel, InboundMessage, OutboundMessage } from "./types.js";
-import { OpencodeHandler, type StreamHandler } from "./opencode.js";
+import { OpencodeHandler, type StreamHandler } from "./opencode/index.js";
 import { loadConfig, makeConfigUpdater, createChannel } from "./config.js";
 import type { ChannelConfig } from "./config.js";
 
