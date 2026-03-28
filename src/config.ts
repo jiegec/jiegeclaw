@@ -112,13 +112,13 @@ export function saveSessions(sessions: Sessions): void {
  * Get the last used working directory for a channel.
  * Returns undefined if no directory has been set.
  */
-export function getLastDir(channelId: string, sessions: Sessions): string | undefined {
-  return sessions[channelId]?.lastDir;
+export function getLastDir(channelId: string): string | undefined {
+  return loadSessions()[channelId]?.lastDir;
 }
 
 /** Get the user ID of the last person who sent a message on a channel. */
-export function getLastFrom(channelId: string, sessions: Sessions): string | undefined {
-  return sessions[channelId]?.lastFrom;
+export function getLastFrom(channelId: string): string | undefined {
+  return loadSessions()[channelId]?.lastFrom;
 }
 
 /**

@@ -88,14 +88,14 @@ export class OpencodeHandler {
 
   /** Check if a channel has a configured working directory (from saved sessions). */
   hasDirectory(channelId: string): boolean {
-    return getLastDir(channelId, loadSessions()) !== undefined;
+    return getLastDir(channelId) !== undefined;
   }
 
   /** Get the current status of a channel (directory and optional session ID). */
   getStatus(channelId: string): { directory?: string; sessionID?: string } {
     const state = this.channelStates.get(channelId);
     if (!state) {
-      const lastDir = getLastDir(channelId, loadSessions());
+      const lastDir = getLastDir(channelId);
       return { directory: lastDir };
     }
     return { directory: state.directory, sessionID: state.sessionID };
@@ -117,14 +117,13 @@ export class OpencodeHandler {
   async ensureSession(channelId: string): Promise<void> {
     const existing = this.channelStates.get(channelId);
     if (existing?.server) return;
-    const sessions = loadSessions();
-    const lastDir = getLastDir(channelId, sessions);
+    const lastDir = getLastDir(channelId);
     if (!lastDir) throw new Error(`No directory for channel ${channelId}`);
     await this.cd(channelId, lastDir);
 
     // Send a restore notification to the last user who interacted with this channel
     const state = this.channelStates.get(channelId);
-    const lastFrom = getLastFrom(channelId, sessions);
+    const lastFrom = getLastFrom(channelId);
     if (state && lastFrom) {
       await state.stream.send({
         to: lastFrom,
