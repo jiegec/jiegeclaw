@@ -19,6 +19,8 @@ export class WecomChannel implements Channel {
   private onConfigUpdate: (index: number, update: Partial<WecomChannelConfig>) => void;
   private channelIndex: number;
   private wsClient?: AiBot.WSClient;
+  private queuedMessages: Array<OutboundMessage>;
+  private authenticated: boolean;
 
   constructor(
     config: WecomChannelConfig,
@@ -30,6 +32,8 @@ export class WecomChannel implements Channel {
     this.botId = config.botId;
     this.secret = config.secret;
     this.onConfigUpdate = onConfigUpdate;
+    this.queuedMessages = [];
+    this.authenticated = false;
   }
 
   /**
@@ -61,23 +65,32 @@ export class WecomChannel implements Channel {
     console.log("\nWeCom connected successfully!");
   }
 
+  ensureClient() {
+    if (this.wsClient === undefined) {
+      const wsClient = new AiBot.WSClient({
+        botId: this.botId!,
+        secret: this.secret!,
+      });
+      this.wsClient = wsClient;
+      this.wsClient!.connect();
+    }
+  }
+
   /**
    * Start listening for WeCom messages via WebSocket.
    * The WebSocket client connects and dispatches text messages to the callback.
    * The returned promise never resolves (blocks until stop() is called).
    */
   async listen(onMessage: (msg: InboundMessage) => void): Promise<void> {
-    const wsClient = new AiBot.WSClient({
-      botId: this.botId!,
-      secret: this.secret!,
-    });
-    this.wsClient = wsClient;
+    this.ensureClient();
 
-    wsClient.on("authenticated", () => {
+    this.wsClient!.on("authenticated", () => {
       console.log(`[${this.id}] WeCom authenticated`);
+      this.authenticated = true;
+      this.flush();
     });
 
-    wsClient.on("message.text", (frame: WsFrame<TextMessage>) => {
+    this.wsClient!.on("message.text", (frame: WsFrame<TextMessage>) => {
       const body = frame.body as TextMessage;
       if (!body.text?.content?.trim()) return;
 
@@ -94,10 +107,8 @@ export class WecomChannel implements Channel {
       });
     });
 
-    wsClient.connect();
-
     // Block forever — the listener runs until stop() disconnects the WebSocket
-    return new Promise(() => {});
+    return new Promise(() => { });
   }
 
   /**
@@ -106,19 +117,27 @@ export class WecomChannel implements Channel {
    * Otherwise, sends a markdown message to the specified user/chat.
    */
   async send(msg: OutboundMessage): Promise<void> {
-    if (this.wsClient === undefined) return;
+    // Queue messages before authentication
+    this.queuedMessages.push(msg);
+    await this.flush();
+  }
 
-    if (msg.contextToken) {
-      // Stream reply to the original message frame
-      await this.wsClient.replyStream(msg.contextToken, generateReqId("stream"), msg.text, true);
-      return;
+  async flush(): Promise<void> {
+    while (this.authenticated) {
+      const newMsg = this.queuedMessages.shift();
+      if (newMsg === undefined) {
+        break;
+      } else if (newMsg.contextToken) {
+        // Stream reply to the original message frame
+        await this.wsClient!.replyStream(newMsg.contextToken, generateReqId("stream"), newMsg.text, true);
+      } else {
+        // Send a new standalone markdown message
+        await this.wsClient!.sendMessage(newMsg.to, {
+          msgtype: "markdown",
+          markdown: { content: newMsg.text },
+        });
+      }
     }
-
-    // Send a new standalone markdown message
-    await this.wsClient.sendMessage(msg.to, {
-      msgtype: "markdown",
-      markdown: { content: msg.text },
-    });
   }
 
   /** Disconnect the WeCom WebSocket client. */
