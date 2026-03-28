@@ -101,6 +101,7 @@ export class OpencodeHandler {
   }
 
   async getProjects(channelId: string): Promise<Array<{ id: string; name?: string; worktree: string }>> {
+    await this.ensureSession(channelId);
     const state = this.channelStates.get(channelId);
     if (!state || !state.client) return [];
     const result = await state.client.project.list();
