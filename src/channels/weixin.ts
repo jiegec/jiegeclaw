@@ -46,7 +46,7 @@ function saveSyncBuf(buf: string): void {
 function extractText(itemList?: MessageItem[]): string {
   if (!itemList?.length) return "";
   for (const item of itemList) {
-    if (item.type === MessageItemType.TEXT && item.text_item?.text != null) {
+    if (item.type === MessageItemType.TEXT && item.text_item?.text != undefined) {
       return String(item.text_item?.text);
     }
     if (item.type === MessageItemType.VOICE && item.voice_item?.text) {
@@ -61,10 +61,10 @@ export class WeixinChannel implements Channel {
   private onConfigUpdate: (index: number, update: Partial<WeixinChannelConfig>) => void;
   private channelIndex: number;
 
-  private token = "";
-  private accountId = "";
-  private userId = "";
-  private abortController: AbortController | null = null;
+  private token?;
+  private accountId;
+  private userId?;
+  private abortController?: AbortController;
 
   constructor(
     config: WeixinChannelConfig,

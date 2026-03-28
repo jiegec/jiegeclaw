@@ -20,6 +20,7 @@ import type { InboundMessage, OutboundMessage } from "./types.js";
 import {
   loadSessions,
   getLastDir,
+  getLastFrom,
   getSessionIdForDir,
   updateChannelSession,
 } from "./config.js";
@@ -52,19 +53,19 @@ interface ChannelState {
   /** The stream handler for sending messages back to the channel. */
   stream: StreamHandler;
   /** The working directory for this channel's opencode session. */
-  directory: string;
+  directory?: string;
   /** The running opencode server process. */
-  server: ServerProcess;
+  server?: ServerProcess;
   /** The opencode SDK client connected to the server. */
-  client: OpencodeClient;
+  client?: OpencodeClient;
   /** The active opencode session ID. */
-  sessionID: string;
+  sessionID?: string;
   /** The inbound message currently being processed (used for reply addressing). */
-  activeMsg: InboundMessage | null;
+  activeMsg?: InboundMessage;
   /** Set of subagent (child) session IDs spawned by the main session. */
-  childSessionIDs: Set<string>;
+  childSessionIDs?: Set<string>;
   /** Controller to abort the event loop when switching directories or stopping. */
-  abortController: AbortController;
+  abortController?: AbortController;
 }
 
 export class OpencodeHandler {
@@ -120,6 +121,16 @@ export class OpencodeHandler {
     const lastDir = getLastDir(channelId, sessions);
     if (!lastDir) throw new Error(`No directory for channel ${channelId}`);
     await this.cd(channelId, lastDir);
+
+    // Send a restore notification to the last user who interacted with this channel
+    const state = this.channelStates.get(channelId);
+    const lastFrom = getLastFrom(channelId, sessions);
+    if (state && lastFrom) {
+      await state.stream.send({
+        to: lastFrom,
+        text: `Session restored in \`${state.directory}\` (${state.sessionID?.slice(0, 8)})`,
+      });
+    }
   }
 
   /**
@@ -135,8 +146,8 @@ export class OpencodeHandler {
     // Tear down any existing server for this channel
     if (existing?.server) {
       console.log(`[${channelId}] Tearing down old server in ${existing.directory}`);
-      existing.abortController.abort();
-      existing.activeMsg = null;
+      existing.abortController?.abort();
+      existing.activeMsg = undefined;
       existing.server.close();
     }
 
@@ -183,7 +194,7 @@ export class OpencodeHandler {
       server,
       client,
       sessionID,
-      activeMsg: null,
+      activeMsg: undefined,
       childSessionIDs: new Set(),
       abortController: new AbortController(),
     });
@@ -203,8 +214,12 @@ export class OpencodeHandler {
 
     state.activeMsg = msg;
 
-    await state.client.session.promptAsync({
-      sessionID: state.sessionID,
+    // Persist the sender's ID so we can notify them on session restore after restart
+    const sessions = loadSessions();
+    updateChannelSession(channelId, state.directory!, state.sessionID!, sessions, msg.from);
+
+    await state.client!.session.promptAsync({
+      sessionID: state.sessionID!,
       parts: [{ type: "text" as const, text: msg.text }],
     });
   }
@@ -254,10 +269,10 @@ export class OpencodeHandler {
 
   /**
    * Build an outbound message template from the currently active inbound message.
-   * Returns null if there's no active message (e.g., between requests).
+   * Returns undefined if there's no active message (e.g., between requests).
    */
-  private createBaseMsg(state: ChannelState): OutboundMessage | null {
-    if (!state.activeMsg) return null;
+  private createBaseMsg(state: ChannelState): OutboundMessage | undefined {
+    if (!state.activeMsg) return undefined;
     return { to: state.activeMsg.from, text: "", contextToken: state.activeMsg.contextToken };
   }
 
@@ -278,13 +293,13 @@ export class OpencodeHandler {
     // Track full messages to determine the role (user vs assistant) of parts
     const messages: Map<string, Message> = new Map();
 
-    while (!abortController.signal.aborted) {
+    while (!abortController!.signal.aborted) {
       try {
-        const result = await client.event.subscribe();
+        const result = await client!.event.subscribe();
         console.log(`[${channelId}] Event stream connected`);
 
         for await (const event of result.stream) {
-          if (abortController.signal.aborted) break;
+          if (abortController!.signal.aborted) break;
 
           const e = event as Event;
 
@@ -292,27 +307,27 @@ export class OpencodeHandler {
           if (e.type === "session.updated") {
             const info = e.properties.info;
             if (info.parentID === sessionID && e.properties.sessionID !== sessionID) {
-              const isNew = !state.childSessionIDs.has(e.properties.sessionID);
-              state.childSessionIDs.add(e.properties.sessionID);
+              const isNew = !state.childSessionIDs!.has(e.properties.sessionID);
+              state.childSessionIDs!.add(e.properties.sessionID);
               const baseMsg = this.createBaseMsg(state);
-              if (isNew && baseMsg !== null) {
+              if (isNew && baseMsg !== undefined) {
                 const title = info.title ?? "subagent";
                 await stream.send({ ...baseMsg, text: `🤖 Launching subagent: **${title}**` });
               }
               console.log(`[${channelId}] Tracking child session ${e.properties.sessionID}`);
             }
-          } else if (e.type === "session.status" && e.properties.sessionID !== sessionID && state.childSessionIDs.has(e.properties.sessionID)) {
+          } else if (e.type === "session.status" && e.properties.sessionID !== sessionID && state.childSessionIDs!.has(e.properties.sessionID)) {
             // Notify when a subagent finishes its work
             const status = (e.properties as { status: { type: string } }).status;
             const baseMsg = this.createBaseMsg(state);
-            if (status.type === "idle" && baseMsg !== null) {
+            if (status.type === "idle" && baseMsg !== undefined) {
               await stream.send({ ...baseMsg, text: `✅ **Subagent finished**` });
             }
           }
 
           // Helper to check if an event belongs to this channel's session tree
           const isOwnEvent = (sid: string | undefined) =>
-            sid === sessionID || (sid !== undefined && state.childSessionIDs.has(sid));
+            sid === sessionID || (sid !== undefined && state.childSessionIDs!.has(sid));
 
           // Handle session errors (forward to user)
           if (e.type === "session.error" && isOwnEvent(e.properties.sessionID)) {
@@ -322,17 +337,17 @@ export class OpencodeHandler {
               errMsg = (errObj as { data: { message?: string } }).data.message!;
             }
             const baseMsg = this.createBaseMsg(state);
-            if (baseMsg !== null) {
+            if (baseMsg !== undefined) {
               await stream.send({ ...baseMsg, text: `Error: ${errMsg}` });
             }
-            state.activeMsg = null;
+            state.activeMsg = undefined;
             console.error(`[${channelId}] Session error: ${errMsg}`);
           } else if (e.type === "permission.asked" && isOwnEvent(e.properties.sessionID)) {
             // Handle permission requests (ask user to approve/deny tool execution)
-            await this.handlePermission(channelId, client, stream, state, e.properties);
+            await this.handlePermission(channelId, client!, stream, state, e.properties);
           } else if (e.type === "question.asked" && isOwnEvent(e.properties.sessionID)) {
             // Handle questions (ask user to choose from options)
-            await this.handleQuestion(channelId, client, stream, state, e.properties);
+            await this.handleQuestion(channelId, client!, stream, state, e.properties);
           } else if (e.type === "message.updated" && isOwnEvent(e.properties.sessionID)) {
             // Track full message metadata for role detection
             messages.set(e.properties.info.id, e.properties.info);
@@ -343,11 +358,11 @@ export class OpencodeHandler {
             const baseMsg = this.createBaseMsg(state);
             const role = messages.get(e.properties.part.messageID)?.role;
             // Only forward assistant messages (not user messages echoing back)
-            if (role === "assistant" && text !== null && text.length > 0 && baseMsg !== null) {
+            if (role === "assistant" && text !== undefined && text.length > 0 && baseMsg !== undefined) {
               await stream.send({ ...baseMsg, text });
             }
             // Clear cached message once we've processed parts from it
-            if (text !== null && text.length > 0) {
+            if (text !== undefined && text.length > 0) {
               messages.delete(e.properties.part.messageID);
             }
           }
@@ -385,7 +400,7 @@ export class OpencodeHandler {
     );
 
     const choice = this.mapReplyToChoice(reply);
-    if (!choice) {
+    if (choice === undefined) {
       console.warn(`[${channelId}] Unrecognized permission reply: "${reply}"`);
       return;
     }
@@ -402,7 +417,7 @@ export class OpencodeHandler {
   }
 
   /** Map a user's text reply to a permission choice. */
-  private mapReplyToChoice(reply: string): "once" | "always" | "reject" | null {
+  private mapReplyToChoice(reply: string): "once" | "always" | "reject" | undefined {
     switch (reply) {
       case "once":
       case "1":
@@ -416,7 +431,7 @@ export class OpencodeHandler {
       case "3":
         return "reject";
       default:
-        return null;
+        return undefined;
     }
   }
 
@@ -465,11 +480,12 @@ export class OpencodeHandler {
   }
 
   /** Stop all opencode sessions and kill all server processes. */
-  stop(): void {
+  async stop(): Promise<void> {
     for (const [channelId, state] of this.channelStates) {
       console.log(`[${channelId}] Stopping session ${state.sessionID}`);
-      state.activeMsg = null;
-      state.abortController.abort();
+      state.activeMsg = undefined;
+      await state.client?.global.dispose();
+      state.abortController?.abort();
       state.server?.close();
     }
   }
@@ -477,9 +493,9 @@ export class OpencodeHandler {
 
 /**
  * Convert an opencode message part to a human-readable text representation.
- * Returns null for parts that shouldn't be displayed (e.g., pending/running tools).
+ * Returns undefined for parts that shouldn't be displayed (e.g., pending/running tools).
  */
-function partToText(part: Part): string | null {
+function partToText(part: Part): string | undefined {
   switch (part.type) {
     case "tool": return formatToolPart(part);
     case "agent": return `🤖 **Agent:** ${part.name}`;
@@ -492,26 +508,26 @@ function partToText(part: Part): string | null {
     case "compaction": return `📦 **Compaction**${part.auto ? " (auto)" : ""}`;
     case "reasoning": return `> 💭 *${part.text}*`;
     case "text": return part.text;
-    default: return null;
+    default: return undefined;
   }
 }
 
 /**
  * Format a tool execution part for display.
- * Pending and running tools return null (not yet ready to display).
+ * Pending and running tools return undefined (not yet ready to display).
  * Completed tools show the tool name, title, input, and output.
  * Errored tools show the error message.
  */
-function formatToolPart(p: ToolPart): string | null {
+function formatToolPart(p: ToolPart): string | undefined {
   switch (p.state.status) {
-    case "pending": return null;
-    case "running": return null;
+    case "pending": return undefined;
+    case "running": return undefined;
     case "completed": {
       const out = p.state.output;
       // Special formatting for todowrite tool: show a checklist instead of raw YAML
       if (p.tool === "todowrite") {
         const formatted = formatTodoWrite(p.state.title, out);
-        if (formatted !== null) {
+        if (formatted !== undefined) {
           return formatted;
         }
       }
@@ -529,7 +545,7 @@ function formatToolPart(p: ToolPart): string | null {
  * Special formatting for the todowrite tool.
  * Parses the YAML output into a checklist with status icons and priority labels.
  */
-function formatTodoWrite(title: string, output: string): string | null {
+function formatTodoWrite(title: string, output: string): string | undefined {
   try {
     const todos = parse(output) as Array<{ content: string; priority: string; status: string }>;
     const statusIcon: Record<string, string> = {
@@ -544,6 +560,6 @@ function formatTodoWrite(title: string, output: string): string | null {
     });
     return `✅ **[todowrite]** **${title}**\n\n${lines.join("\n")}`;
   } catch {
-    return null;
+    return undefined;
   }
 }

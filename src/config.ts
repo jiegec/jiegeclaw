@@ -63,12 +63,15 @@ export function saveConfig(config: AppConfig): void {
 }
 
 /**
- * Per-channel session data, tracking the last used directory
+ * Per-channel session data, tracking the last used directory,
+ * the last user who sent a message (for restore notifications),
  * and a mapping of directory -> session ID for quick reuse.
  */
 interface ChannelSessions {
   /** The most recently used working directory for this channel. */
   lastDir?: string;
+  /** The user ID of the last person who sent a message, used to send session restore notifications. */
+  lastFrom?: string;
   /** Map of working directory path -> opencode session ID. */
   dirs: Record<string, string>;
 }
@@ -84,7 +87,7 @@ export function loadSessions(): Sessions {
   try {
     const raw = fs.readFileSync(SESSIONS_PATH, "utf-8");
     const sessions = parse(raw) as Sessions;
-    if (typeof sessions !== "object" || sessions === null) return {};
+    if (typeof sessions !== "object") return {};
     for (const ch of Object.values(sessions)) {
       if (!ch || typeof ch !== "object" || typeof (ch as ChannelSessions).dirs !== "object") {
         return {};
@@ -113,6 +116,11 @@ export function getLastDir(channelId: string, sessions: Sessions): string | unde
   return sessions[channelId]?.lastDir;
 }
 
+/** Get the user ID of the last person who sent a message on a channel. */
+export function getLastFrom(channelId: string, sessions: Sessions): string | undefined {
+  return sessions[channelId]?.lastFrom;
+}
+
 /**
  * Get the saved opencode session ID for a specific channel + directory combination.
  * Returns undefined if no session exists for that directory.
@@ -124,13 +132,15 @@ export function getSessionIdForDir(channelId: string, directory: string, session
 /**
  * Update the session state for a channel, recording the current directory
  * and its associated opencode session ID. Persists to disk immediately.
+ * Optionally records the sender's user ID for session restore notifications.
  */
-export function updateChannelSession(channelId: string, directory: string, sessionID: string, sessions: Sessions): Sessions {
+export function updateChannelSession(channelId: string, directory: string, sessionID: string, sessions: Sessions, from?: string): Sessions {
   if (!sessions[channelId]) {
     sessions[channelId] = { lastDir: directory, dirs: {} };
   }
   const ch = sessions[channelId];
   ch.lastDir = directory;
+  if (from !== undefined) ch.lastFrom = from;
   ch.dirs[directory] = sessionID;
   saveSessions(sessions);
   return sessions;

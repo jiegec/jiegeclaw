@@ -9,6 +9,7 @@
  *    and resolves it when the user's reply comes back through the channel)
  */
 
+import { spawn } from "node:child_process";
 import type { Channel, InboundMessage, OutboundMessage } from "./types.js";
 import { OpencodeHandler, type StreamHandler } from "./opencode.js";
 
@@ -100,8 +101,21 @@ export class Server {
               });
               await channel.send({ to: msg.from, text: `**Projects (${projects.length}):**\n\n${lines.join("\n")}`, contextToken: msg.contextToken });
               return;
+            } else if (cmd === "restart") {
+              await channel.send({ to: msg.from, text: "Restarting...", contextToken: msg.contextToken });
+              setTimeout(async () => {
+                await this.stop();
+                const child = spawn("npm", ["start"], {
+                  detached: true,
+                  stdio: "inherit",
+                  env: process.env,
+                });
+                child.unref();
+                process.exit(0);
+              }, 1000);
+              return;
             } else if (cmd === "help") {
-              await channel.send({ to: msg.from, text: "**Available commands:**\n\n- `/cd <path>`: Switch to a different project directory\n- `/status`: Show current session status\n- `/projects`: List opencode projects\n- `/help`: Show this help message", contextToken: msg.contextToken });
+              await channel.send({ to: msg.from, text: "**Available commands:**\n\n- `/cd <path>`: Switch to a different project directory\n- `/status`: Show current session status\n- `/projects`: List opencode projects\n- `/restart`: Restart the bot\n- `/help`: Show this help message", contextToken: msg.contextToken });
               return;
             }
 
@@ -182,9 +196,9 @@ export class Server {
    * Try to resolve a pending reply with the incoming message.
    * If the message is from the right user on the right channel and matches
    * the valid choices (if any), the pending promise is resolved.
-   * Returns the pending ID if resolved, null otherwise.
+   * Returns the pending ID if resolved, undefined otherwise.
    */
-  private async tryResolvePendingReply(text: string, from: string, channel: Channel): Promise<string | null> {
+  private async tryResolvePendingReply(text: string, from: string, channel: Channel): Promise<string | undefined> {
     for (const [id, pending] of this.pendingReplies) {
       if (pending.channel !== channel || pending.to !== from) continue;
       if (pending.validChoices && !pending.validChoices.includes(text)) {
@@ -198,12 +212,12 @@ export class Server {
       pending.resolve(text);
       return id;
     }
-    return null;
+    return undefined;
   }
 
   /** Stop all channels and resolve any pending replies with "reject". */
-  stop(): void {
-    this.handler.stop();
+  async stop(): Promise<void> {
+    await this.handler.stop();
     for (const [, pending] of this.pendingReplies) {
       pending.resolve("reject");
     }
