@@ -49,6 +49,15 @@ export class Server {
       this.handler.setStream(channel.id, stream);
     }
 
+    // Resume sessions for channels that have a saved working directory
+    for (const channel of this.channels) {
+      try {
+        await this.handler.ensureSession(channel.id);
+      } catch (err) {
+        console.log(`[${channel.id}] No saved session to resume: ${(err as Error).message}`);
+      }
+    }
+
     // Start listening on all channels and process messages as they arrive
     const promises = this.channels.map((channel) =>
       channel.listen(async (msg: InboundMessage) => {
