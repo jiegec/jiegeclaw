@@ -117,8 +117,12 @@ export class Server {
                 process.kill(process.pid, "SIGUSR2");
               }, 1000);
               return;
+            } else if (cmd === "reset") {
+              const newSessionID = await this.handler.resetSession(channel.id);
+              await channel.send({ to: msg.from, text: `Session reset. New session: \`${newSessionID.slice(0, 8)}\``, contextToken: msg.contextToken });
+              return;
             } else if (cmd === "help") {
-              await channel.send({ to: msg.from, text: "**Available commands:**\n\n- `/cd <path>`: Switch to a different project directory\n- `/status`: Show current session status\n- `/projects`: List opencode projects\n- `/restart`: Restart the bot\n- `/help`: Show this help message", contextToken: msg.contextToken });
+              await channel.send({ to: msg.from, text: "**Available commands:**\n\n- `/cd <path>`: Switch to a different project directory\n- `/status`: Show current session status\n- `/projects`: List opencode projects\n- `/reset`: Reset to a new opencode session\n- `/restart`: Restart the bot\n- `/help`: Show this help message", contextToken: msg.contextToken });
               return;
             }
 

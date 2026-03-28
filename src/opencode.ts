@@ -110,6 +110,30 @@ export class OpencodeHandler {
   }
 
   /**
+   * Reset the session for a channel by creating a new opencode session.
+   * The old session is abandoned (not deleted) and a new one is created.
+   * Returns the new session ID.
+   */
+  async resetSession(channelId: string): Promise<string> {
+    const state = this.channelStates.get(channelId);
+    if (!state || !state.client || !state.directory) throw new Error(`No active session for channel ${channelId}`);
+
+    // Create a new session
+    const session = await state.client.session.create();
+    const newSessionID = session.data?.id;
+    if (newSessionID === undefined) throw new Error("Failed to create new session");
+
+    // Update the channel state with the new session ID
+    state.sessionID = newSessionID;
+
+    // Persist the new session mapping
+    updateChannelSession(channelId, state.directory, newSessionID);
+
+    console.log(`[${channelId}] Reset to new session ${newSessionID}`);
+    return newSessionID;
+  }
+
+  /**
    * Ensure a session exists for the channel.
    * If the channel already has an active server, this is a no-op.
    * Otherwise, it changes to the last used directory.
