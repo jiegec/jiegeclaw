@@ -11,14 +11,8 @@
 
 import type { Channel, InboundMessage, OutboundMessage } from "./types.js";
 import { OpencodeHandler, type StreamHandler } from "./opencode.js";
-import { loadConfig, saveConfig } from "./config.js";
+import { loadConfig, makeConfigUpdater, createChannel } from "./config.js";
 import type { ChannelConfig } from "./config.js";
-import { WeixinChannel } from "./channels/weixin.js";
-import type { WeixinChannelConfig } from "./channels/weixin-types.js";
-import { FeishuChannel } from "./channels/feishu.js";
-import type { FeishuChannelConfig } from "./channels/feishu-types.js";
-import { WecomChannel } from "./channels/wecom.js";
-import type { WecomChannelConfig } from "./channels/wecom-types.js";
 
 export class Server {
   private channels: Channel[] = [];
@@ -234,41 +228,6 @@ export class Server {
     for (const channel of this.channels) {
       channel.stop();
     }
-  }
-}
-
-/**
- * Create a config updater function that mutates the in-memory config array
- * and persists changes to disk after each update.
- */
-function makeConfigUpdater(config: ChannelConfig[]): (index: number, update: Record<string, unknown>) => void {
-  return (index, update) => {
-    config[index] = { ...config[index], ...update };
-    const appConfig = loadConfig();
-    appConfig.channels = config;
-    saveConfig(appConfig);
-  };
-}
-
-/**
- * Factory function to create a Channel instance based on the config type.
- * Passes through the config update callback so channels can persist credentials
- * during interactive setup.
- */
-function createChannel(
-  cfg: ChannelConfig,
-  index: number,
-  onConfigUpdate: (index: number, update: Record<string, unknown>) => void,
-): Channel {
-  switch (cfg.type) {
-    case "weixin":
-      return new WeixinChannel(cfg as WeixinChannelConfig, index, onConfigUpdate as never);
-    case "feishu":
-      return new FeishuChannel(cfg as FeishuChannelConfig, index, onConfigUpdate as never);
-    case "wecom":
-      return new WecomChannel(cfg as WecomChannelConfig, index, onConfigUpdate as never);
-    default:
-      throw new Error(`Unknown channel type: ${cfg.type}`);
   }
 }
 

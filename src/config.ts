@@ -12,9 +12,13 @@ import fs from "node:fs";
 import path from "node:path";
 import os from "node:os";
 import { parse, stringify } from "yaml";
-import { FeishuChannelConfig } from "./channels/feishu-types.js";
-import { WeixinChannelConfig } from "./channels/weixin-types.js";
-import { WecomChannelConfig } from "./channels/wecom-types.js";
+import type { FeishuChannelConfig } from "./channels/feishu-types.js";
+import type { WeixinChannelConfig } from "./channels/weixin-types.js";
+import type { WecomChannelConfig } from "./channels/wecom-types.js";
+import { WeixinChannel } from "./channels/weixin.js";
+import { FeishuChannel } from "./channels/feishu.js";
+import { WecomChannel } from "./channels/wecom.js";
+import type { Channel } from "./types.js";
 
 const CONFIG_DIR = path.join(os.homedir(), ".jiegeclaw");
 const CONFIG_PATH = path.join(CONFIG_DIR, "config.yaml");
@@ -144,4 +148,30 @@ export function updateChannelSession(channelId: string, directory: string, sessi
   if (from !== undefined) ch.lastFrom = from;
   ch.dirs[directory] = sessionID;
   saveSessions(sessions);
+}
+
+export function makeConfigUpdater(config: ChannelConfig[]): (index: number, update: Record<string, unknown>) => void {
+  return (index, update) => {
+    config[index] = { ...config[index], ...update };
+    const appConfig = loadConfig();
+    appConfig.channels = config;
+    saveConfig(appConfig);
+  };
+}
+
+export function createChannel(
+  cfg: ChannelConfig,
+  index: number,
+  onConfigUpdate: (index: number, update: Record<string, unknown>) => void,
+): Channel {
+  switch (cfg.type) {
+    case "weixin":
+      return new WeixinChannel(cfg as WeixinChannelConfig, index, onConfigUpdate as never);
+    case "feishu":
+      return new FeishuChannel(cfg as FeishuChannelConfig, index, onConfigUpdate as never);
+    case "wecom":
+      return new WecomChannel(cfg as WecomChannelConfig, index, onConfigUpdate as never);
+    default:
+      throw new Error(`Unknown channel type: ${cfg.type}`);
+  }
 }
