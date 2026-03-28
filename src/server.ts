@@ -88,8 +88,20 @@ export class Server {
               }
               await channel.send({ to: msg.from, text: "Status:\n\n" + lines.join("\n"), contextToken: msg.contextToken });
               return;
+            } else if (cmd === "projects") {
+              const projects = await this.handler.getProjects(channel.id);
+              if (!projects.length) {
+                await channel.send({ to: msg.from, text: "No projects found. Start a session first with `/cd <path>`.", contextToken: msg.contextToken });
+                return;
+              }
+              const lines = projects.map((p) => {
+                const name = p.name ?? p.worktree.split("/").pop() ?? p.id;
+                return `- **${name}** \`${p.worktree}\``;
+              });
+              await channel.send({ to: msg.from, text: `**Projects (${projects.length}):**\n\n${lines.join("\n")}`, contextToken: msg.contextToken });
+              return;
             } else if (cmd === "help") {
-              await channel.send({ to: msg.from, text: "**Available commands:**\n\n- `/cd <path>`: Switch to a different project directory\n- `/status`: Show current session status\n- `/help`: Show this help message", contextToken: msg.contextToken });
+              await channel.send({ to: msg.from, text: "**Available commands:**\n\n- `/cd <path>`: Switch to a different project directory\n- `/status`: Show current session status\n- `/projects`: List opencode projects\n- `/help`: Show this help message", contextToken: msg.contextToken });
               return;
             }
 

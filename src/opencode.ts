@@ -100,6 +100,13 @@ export class OpencodeHandler {
     return { directory: state.directory, sessionID: state.sessionID };
   }
 
+  async getProjects(channelId: string): Promise<Array<{ id: string; name?: string; worktree: string }>> {
+    const state = this.channelStates.get(channelId);
+    if (!state || !state.client) return [];
+    const result = await state.client.project.list();
+    return (result.data ?? []).map((p) => ({ id: p.id, name: p.name, worktree: p.worktree }));
+  }
+
   /**
    * Ensure a session exists for the channel.
    * If the channel already has an active server, this is a no-op.
