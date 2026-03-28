@@ -480,9 +480,11 @@ export class OpencodeHandler {
     for (const [channelId, state] of this.channelStates) {
       console.log(`[${channelId}] Stopping session ${state.sessionID}`);
       state.activeMsg = undefined;
-      await state.client?.global.dispose();
-      state.abortController?.abort();
-      state.server?.close();
+      if (state.client !== undefined) {
+        await state.client!.global.dispose();
+        state.abortController!.abort();
+        state.server!.close();
+      }
     }
   }
 }

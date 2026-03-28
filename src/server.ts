@@ -9,9 +9,16 @@
  *    and resolves it when the user's reply comes back through the channel)
  */
 
-import { spawn } from "node:child_process";
 import type { Channel, InboundMessage, OutboundMessage } from "./types.js";
 import { OpencodeHandler, type StreamHandler } from "./opencode.js";
+import { loadConfig, saveConfig } from "./config.js";
+import type { ChannelConfig } from "./config.js";
+import { WeixinChannel } from "./channels/weixin.js";
+import type { WeixinChannelConfig } from "./channels/weixin-types.js";
+import { FeishuChannel } from "./channels/feishu.js";
+import type { FeishuChannelConfig } from "./channels/feishu-types.js";
+import { WecomChannel } from "./channels/wecom.js";
+import type { WecomChannelConfig } from "./channels/wecom-types.js";
 
 export class Server {
   private channels: Channel[] = [];
@@ -112,15 +119,8 @@ export class Server {
               return;
             } else if (cmd === "restart") {
               await channel.send({ to: msg.from, text: "Restarting...", contextToken: msg.contextToken });
-              setTimeout(async () => {
-                await this.stop();
-                const child = spawn("npm", ["start"], {
-                  detached: true,
-                  stdio: "inherit",
-                  env: process.env,
-                });
-                child.unref();
-                process.exit(0);
+              setTimeout(() => {
+                process.kill(process.pid, "SIGUSR2");
               }, 1000);
               return;
             } else if (cmd === "help") {
@@ -236,3 +236,87 @@ export class Server {
     }
   }
 }
+
+/**
+ * Create a config updater function that mutates the in-memory config array
+ * and persists changes to disk after each update.
+ */
+function makeConfigUpdater(config: ChannelConfig[]): (index: number, update: Record<string, unknown>) => void {
+  return (index, update) => {
+    config[index] = { ...config[index], ...update };
+    const appConfig = loadConfig();
+    appConfig.channels = config;
+    saveConfig(appConfig);
+  };
+}
+
+/**
+ * Factory function to create a Channel instance based on the config type.
+ * Passes through the config update callback so channels can persist credentials
+ * during interactive setup.
+ */
+function createChannel(
+  cfg: ChannelConfig,
+  index: number,
+  onConfigUpdate: (index: number, update: Record<string, unknown>) => void,
+): Channel {
+  switch (cfg.type) {
+    case "weixin":
+      return new WeixinChannel(cfg as WeixinChannelConfig, index, onConfigUpdate as never);
+    case "feishu":
+      return new FeishuChannel(cfg as FeishuChannelConfig, index, onConfigUpdate as never);
+    case "wecom":
+      return new WecomChannel(cfg as WecomChannelConfig, index, onConfigUpdate as never);
+    default:
+      throw new Error(`Unknown channel type: ${cfg.type}`);
+  }
+}
+
+/**
+ * Entry point for the child server process.
+ * Loads config, creates all channels, wires up the OpencodeHandler and Server,
+ * then starts listening. SIGUSR2 triggers a clean restart (exit with code 42).
+ */
+export async function runServer(): Promise<void> {
+  const config = loadConfig();
+
+  if (!config.channels.length) {
+    console.error("No channels configured. Run `jiegeclaw setup` first.");
+    process.exit(1);
+  }
+
+  const updater = makeConfigUpdater(config.channels as ChannelConfig[]);
+
+  const opencode = new OpencodeHandler();
+  const server = new Server(opencode);
+
+  for (let i = 0; i < config.channels.length; i++) {
+    const channel = createChannel(config.channels[i], i, updater);
+    server.addChannel(channel);
+  }
+
+  console.log(`Starting jiegeclaw with ${config.channels.length} channel(s)...`);
+
+  const shutdown = async () => {
+    console.log("\nShutting down...");
+    await server.stop();
+    process.exit(0);
+  };
+
+  // SIGUSR2 = restart signal from the /restart command or parent
+  process.on("SIGUSR2", async () => {
+    console.log("\nRestarting...");
+    await server.stop();
+    process.exit(42);
+  });
+
+  process.on("SIGINT", shutdown);
+  process.on("SIGTERM", shutdown);
+
+  await server.start();
+}
+
+runServer().catch((err) => {
+  console.error("Fatal error:", err);
+  process.exit(1);
+});
