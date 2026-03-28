@@ -60,6 +60,8 @@ interface ChannelState {
   client?: OpencodeClient;
   /** The active opencode session ID. */
   sessionID?: string;
+  /** The active opencode session title. */
+  sessionTitle?: string;
   /** The inbound message currently being processed (used for reply addressing). */
   activeMsg?: InboundMessage;
   /** Set of subagent (child) session IDs spawned by the main session. */
@@ -171,7 +173,7 @@ export class OpencodeHandler {
     if (state && lastFrom) {
       await state.stream.send({
         to: lastFrom,
-        text: `Session restored in \`${state.directory}\` (${state.sessionID?.slice(0, 8)})`,
+        text: `Session restored in \`${state.directory}\` (${state.sessionID?.slice(0, 8)}): ${state.sessionTitle}`,
       });
     }
   }
@@ -207,11 +209,13 @@ export class OpencodeHandler {
 
     // Try to reuse the saved session, or create a new one
     let sessionID: string;
+    let sessionTitle: string | undefined;
     if (savedSessionID !== undefined) {
       try {
-        await client.session.get({ sessionID: savedSessionID });
+        const session = await client.session.get({ sessionID: savedSessionID });
         sessionID = savedSessionID;
-        console.log(`[${channelId}] Reusing session ${sessionID} for ${directory}`);
+        sessionTitle = session.data?.title;
+        console.log(`[${channelId}] Reusing session ${sessionID} for ${directory}: ${sessionTitle}`);
       } catch {
         console.log(`[${channelId}] Saved session ${savedSessionID} not found, creating new one`);
         sessionID = await this.createSession(channelId, client);
@@ -229,6 +233,7 @@ export class OpencodeHandler {
       server,
       client,
       sessionID,
+      sessionTitle,
       activeMsg: undefined,
       childSessionIDs: new Set(),
       abortController: new AbortController(),
