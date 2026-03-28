@@ -1,0 +1,156 @@
+/**
+ * Core message routing server.
+ *
+ * The Server class ties channels to the OpencodeHandler:
+ * - Routes incoming channel messages to opencode sessions (or handles slash commands)
+ * - Implements the StreamHandler interface so opencode can send messages back through channels
+ * - Manages pending reply state for permission requests and questions
+ */
+
+import type { Channel, InboundMessage } from "../types.js";
+import { OpencodeHandler } from "../opencode/index.js";
+import { loadConfig, makeConfigUpdater, createChannel } from "../config.js";
+import type { ChannelConfig } from "../config.js";
+import { getCommand, hasCommand } from "./commands.js";
+import { PendingReplyManager, ChannelStreamHandler } from "./stream-handler.js";
+
+export class Server {
+  private channels: Channel[] = [];
+  private handler: OpencodeHandler;
+  private replyManager: PendingReplyManager;
+
+  constructor(handler: OpencodeHandler) {
+    this.handler = handler;
+    this.replyManager = new PendingReplyManager();
+  }
+
+  addChannel(channel: Channel): void {
+    if (this.channels.some((c) => c.id === channel.id)) {
+      throw new Error(`Duplicate channel id: ${channel.id}`);
+    }
+    this.channels.push(channel);
+  }
+
+  async start(): Promise<void> {
+    // Create and register stream handlers for each channel
+    for (const channel of this.channels) {
+      const stream = new ChannelStreamHandler(channel, this.replyManager);
+      this.handler.setStream(channel.id, stream);
+    }
+
+    // Resume sessions for channels that have a saved working directory
+    for (const channel of this.channels) {
+      try {
+        await this.handler.ensureSession(channel.id);
+      } catch (err) {
+        console.log(`[${channel.id}] No saved session to resume: ${(err as Error).message}`);
+      }
+    }
+
+    // Start listening on all channels
+    const promises = this.channels.map((channel) =>
+      channel.listen(async (msg: InboundMessage) => {
+        // Check if this message resolves a pending reply
+        const result = await this.replyManager.tryResolve(msg.text, msg.from, channel);
+        if (result) {
+          // If it was an invalid choice, we've already sent the re-prompt
+          return;
+        }
+
+        try {
+          const truncIn = msg.text.length > 100 ? "..." : "";
+          console.log(`[${channel.id}] <${msg.from}: ${msg.text.slice(0, 100)}${truncIn}`);
+
+          // Handle slash commands
+          const slashMatch = msg.text.match(/^\/(\S+)\s*(.*)/);
+          if (slashMatch) {
+            const cmd = slashMatch[1];
+            const args = slashMatch[2].trim();
+
+            if (hasCommand(cmd)) {
+              const handled = await getCommand(cmd)!({ channel, msg, handler: this.handler }, args);
+              if (handled) return;
+            }
+
+            await channel.send({ to: msg.from, text: `Unknown command: \`/${cmd}\`\nType \`/help\` to see available commands.`, contextToken: msg.contextToken });
+            return;
+          }
+
+          // Require a working directory before forwarding to opencode
+          if (!this.handler.hasDirectory(channel.id)) {
+            console.log(`[${channel.id}] No directory set, prompting user`);
+            await channel.send({ to: msg.from, text: "No directory set. Use `/cd <path>` to select a project directory.", contextToken: msg.contextToken });
+            return;
+          }
+
+          // Ensure an opencode session is running, then forward the message
+          await this.handler.ensureSession(channel.id);
+          await this.handler.handle(channel.id, msg);
+        } catch (err) {
+          console.error(`[${channel.id}] Error handling message from ${msg.from}:`, (err as Error).message);
+          try {
+            await channel.send({
+              to: msg.from,
+              text: `Error: ${(err as Error).message}`,
+              contextToken: msg.contextToken,
+            });
+          } catch {
+            console.error(`[${channel.id}] Failed to send error message`);
+          }
+        }
+      })
+    );
+
+    await Promise.all(promises);
+  }
+
+  async stop(): Promise<void> {
+    await this.handler.stop();
+    this.replyManager.clearAll();
+    for (const channel of this.channels) {
+      channel.stop();
+    }
+  }
+}
+
+export async function runServer(): Promise<void> {
+  const config = loadConfig();
+
+  if (!config.channels.length) {
+    console.error("No channels configured. Run `jiegeclaw setup` first.");
+    process.exit(1);
+  }
+
+  const updater = makeConfigUpdater(config.channels as ChannelConfig[]);
+  const opencode = new OpencodeHandler();
+  const server = new Server(opencode);
+
+  for (let i = 0; i < config.channels.length; i++) {
+    const channel = createChannel(config.channels[i], i, updater);
+    server.addChannel(channel);
+  }
+
+  console.log(`Starting jiegeclaw with ${config.channels.length} channel(s)...`);
+
+  const shutdown = async () => {
+    console.log("\nShutting down...");
+    await server.stop();
+    process.exit(0);
+  };
+
+  process.on("SIGUSR2", async () => {
+    console.log("\nRestarting...");
+    await server.stop();
+    process.exit(42);
+  });
+
+  process.on("SIGINT", shutdown);
+  process.on("SIGTERM", shutdown);
+
+  await server.start();
+}
+
+runServer().catch((err) => {
+  console.error("Fatal error:", err);
+  process.exit(1);
+});

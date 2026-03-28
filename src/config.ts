@@ -30,9 +30,8 @@ const SESSIONS_PATH = path.join(CONFIG_DIR, "sessions.yaml");
 
 /**
  * Union type of all supported channel configurations.
- * Falls back to a generic type for unknown channel types.
  */
-export type ChannelConfig = FeishuChannelConfig | WeixinChannelConfig | WecomChannelConfig | { type: string;[key: string]: unknown };
+export type ChannelConfig = FeishuChannelConfig | WeixinChannelConfig | WecomChannelConfig;
 
 /** Top-level application configuration containing all channels. */
 export interface AppConfig {

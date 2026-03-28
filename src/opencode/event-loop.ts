@@ -13,15 +13,7 @@ import type { Event, Message } from "@opencode-ai/sdk/v2";
 import type { ChannelState, StreamHandler } from "./types.js";
 import { partToText } from "./formatting.js";
 import { handlePermission, handleQuestion } from "./handlers.js";
-
-/**
- * Build an outbound message template from the currently active inbound message.
- * Returns undefined if there's no active message (e.g., between requests).
- */
-function createBaseMsg(state: ChannelState): import("../types.js").OutboundMessage | undefined {
-  if (!state.activeMsg) return undefined;
-  return { to: state.activeMsg.from, text: "", contextToken: state.activeMsg.contextToken };
-}
+import { createBaseMsg } from "./utils.js";
 
 /**
  * Main event loop for a channel's opencode session.

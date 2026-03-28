@@ -66,7 +66,7 @@ function supervise(): Promise<void> {
     let child: ReturnType<typeof spawn>;
 
     function launch() {
-      child = spawn("tsx", ["src/server.ts"], {
+      child = spawn("tsx", ["src/server/index.ts"], {
         stdio: "inherit",
         env: process.env,
       });
@@ -106,7 +106,7 @@ async function setupChannels(): Promise<void> {
 
   if (action === "add" && type) {
     // Create a temporary channel config and run its onboard flow
-    const base: ChannelConfig = { type };
+    const base: ChannelConfig = { type } as ChannelConfig;
     const tempConfig = [...config.channels, base];
     const updater = makeConfigUpdater(tempConfig as ChannelConfig[]);
     const index = tempConfig.length - 1;

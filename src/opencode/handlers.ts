@@ -6,15 +6,7 @@
 
 import type { OpencodeClient, PermissionRequest, QuestionRequest } from "@opencode-ai/sdk/v2";
 import type { ChannelState, StreamHandler } from "./types.js";
-
-/**
- * Build an outbound message template from the currently active inbound message.
- * Returns undefined if there's no active message (e.g., between requests).
- */
-function createBaseMsg(state: ChannelState): import("../types.js").OutboundMessage | undefined {
-  if (!state.activeMsg) return undefined;
-  return { to: state.activeMsg.from, text: "", contextToken: state.activeMsg.contextToken };
-}
+import { createBaseMsg } from "./utils.js";
 
 /**
  * Handle a permission request from opencode (e.g., tool approval).
