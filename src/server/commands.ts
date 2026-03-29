@@ -85,7 +85,17 @@ registerCommand("reset", async ({ channel, msg, handler }) => {
   return true;
 });
 
+registerCommand("abort", async ({ channel, msg, handler }) => {
+  const success = await handler.abort(channel.id);
+  if (success) {
+    await channel.send({ to: msg.from, text: "✅ **Abort completed**", contextToken: msg.contextToken });
+  } else {
+    await channel.send({ to: msg.from, text: "❌ No active session to abort", contextToken: msg.contextToken });
+  }
+  return true;
+});
+
 registerCommand("help", async ({ channel, msg }) => {
-  await channel.send({ to: msg.from, text: "**Available commands:**\n\n- `/cd <path>`: Switch to a different project directory\n- `/status`: Show current session status\n- `/projects`: List opencode projects\n- `/reset`: Reset to a new opencode session\n- `/restart`: Restart the bot\n- `/help`: Show this help message", contextToken: msg.contextToken });
+  await channel.send({ to: msg.from, text: "**Available commands:**\n\n- `/cd <path>`: Switch to a different project directory\n- `/status`: Show current session status\n- `/projects`: List opencode projects\n- `/reset`: Reset to a new opencode session\n- `/abort`: Abort the current generation\n- `/restart`: Restart the bot\n- `/help`: Show this help message", contextToken: msg.contextToken });
   return true;
 });

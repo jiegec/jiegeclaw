@@ -6,7 +6,7 @@
  * and markdown-formatted messages.
  */
 
-import type { Channel, InboundMessage, OutboundMessage, ImageAttachment } from "../types.js";
+import type { Channel, InboundMessage, OutboundMessage, ImageAttachment, WecomContextToken } from "../types.js";
 import AiBot from "@wecom/aibot-node-sdk";
 import { generateReqId, type WsFrame, type TextMessage, type ImageMessage, type MixedMessage, MessageType } from "@wecom/aibot-node-sdk";
 import type { WecomChannelConfig } from "./wecom-types.js";
@@ -109,7 +109,7 @@ export class WecomChannel implements Channel {
       // Use the WeCom user ID as the sender, falling back to chat ID
       const from = body.from?.userid ?? body.chatid ?? "";
       // Store the full WsFrame as contextToken for reply streaming
-      const contextToken = frame;
+      const contextToken: WecomContextToken = { channel: "wecom", frame };
 
       onMessage({
         id: body.msgid,
@@ -135,11 +135,13 @@ export class WecomChannel implements Channel {
         console.error(`[${this.id}] Failed to download image:`, (err as Error).message);
       }
 
+      const contextToken: WecomContextToken = { channel: "wecom", frame };
+
       onMessage({
         id: body.msgid,
         from,
         text: "",
-        contextToken: frame,
+        contextToken,
         images,
       });
     });
@@ -170,11 +172,13 @@ export class WecomChannel implements Channel {
 
       if (!text.trim() && images.length === 0) return;
 
+      const contextToken: WecomContextToken = { channel: "wecom", frame };
+
       onMessage({
         id: body.msgid,
         from,
         text,
-        contextToken: frame,
+        contextToken,
         images,
       });
     });
@@ -202,7 +206,15 @@ export class WecomChannel implements Channel {
    * @param finish Whether this is the final message in the stream
    */
   async streamSend(streamId: string, msg: OutboundMessage, finish: boolean): Promise<void> {
-    const frame = msg.contextToken as WsFrame<TextMessage>;
+    if (msg.contextToken?.channel !== "wecom") {
+      return;
+    }
+    const frame = msg.contextToken.frame;
+
+    if (!frame) {
+      console.warn(`[${this.id}] streamSend called without valid WeCom contextToken`);
+      return;
+    }
 
     // Add to rate limiter - only latest content per stream is kept
     this.rateLimiter.add(streamId, {
@@ -218,9 +230,9 @@ export class WecomChannel implements Channel {
       const newMsg = this.queuedMessages.shift();
       if (newMsg === undefined) {
         break;
-      } else if (newMsg.contextToken) {
+      } else if (newMsg.contextToken && newMsg.contextToken.channel === "wecom") {
         // Stream reply to the original message frame (non-streaming, one-shot)
-        await this.wsClient!.replyStream(newMsg.contextToken, generateReqId("stream"), newMsg.text, true);
+        await this.wsClient!.replyStream(newMsg.contextToken.frame, generateReqId("stream"), newMsg.text, true);
       } else {
         // Send a new standalone markdown message
         await this.wsClient!.sendMessage(newMsg.to, {

@@ -253,6 +253,29 @@ export class OpencodeHandler {
   }
 
   /**
+   * Abort the current running generation in the opencode session.
+   * This will stop any ongoing LLM generation or tool execution.
+   * Returns true if abort was successful, false if there was no active session.
+   */
+  async abort(channelId: string): Promise<boolean> {
+    const state = this.channelStates.get(channelId);
+    if (!state || !state.client || !state.sessionID) {
+      return false;
+    }
+
+    try {
+      await state.client.session.abort({
+        sessionID: state.sessionID,
+      });
+      console.log(`[${channelId}] Aborted session ${state.sessionID}`);
+      return true;
+    } catch (err) {
+      console.error(`[${channelId}] Failed to abort: ${err}`);
+      return false;
+    }
+  }
+
+  /**
    * Spawn an opencode server child process in the given directory.
    * Waits up to 15 seconds for the server to start and output its listening URL.
    * Rejects if the server exits or times out.

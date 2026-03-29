@@ -8,7 +8,7 @@
  * across restarts.
  */
 
-import type { Channel, InboundMessage, OutboundMessage } from "../types.js";
+import type { Channel, InboundMessage, OutboundMessage, WeixinContextToken } from "../types.js";
 import { startWeixinLoginWithQr, waitForWeixinLogin } from "@tencent-weixin/openclaw-weixin/src/auth/login-qr.js";
 import { getUpdates, sendMessage as sendMessageApi } from "@tencent-weixin/openclaw-weixin/src/api/api.js";
 import { MessageItemType, MessageType, MessageState } from "@tencent-weixin/openclaw-weixin/src/api/types.js";
@@ -178,7 +178,7 @@ export class WeixinChannel implements Channel {
             id: String(raw.message_id ?? Date.now()),
             from: raw.from_user_id ?? "",
             text,
-            contextToken: raw.context_token,
+            contextToken: raw.context_token ? { channel: "weixin", contextToken: raw.context_token } : undefined,
           });
         }
       } catch (err) {
@@ -212,7 +212,7 @@ export class WeixinChannel implements Channel {
           message_type: MessageType.BOT,
           message_state: MessageState.FINISH,
           item_list: itemList.length ? itemList : undefined,
-          context_token: msg.contextToken,
+          context_token: msg.contextToken?.channel === "weixin" ? msg.contextToken.contextToken : undefined,
         },
       },
     });

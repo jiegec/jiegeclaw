@@ -58,8 +58,12 @@ export function formatToolPart(p: ToolPart): string {
   switch (p.state.status) {
     case "pending": {
       const inputStr = stringify(p.state.input).trim();
-      const truncatedInput = inputStr.length > 500 ? inputStr.slice(0, 500) + "..." : inputStr;
-      return `⏳ **[${p.tool}]** Pending...\n\`\`\`\n${truncatedInput}\n\`\`\``;
+      if (inputStr !== "{}") {
+        const truncatedInput = inputStr.length > 500 ? inputStr.slice(0, 500) + "..." : inputStr;
+        return `⏳ **[${p.tool}]** Pending...\n\`\`\`\n${truncatedInput}\n\`\`\``;
+      } else {
+        return `⏳ **[${p.tool}]** Pending...`;
+      }
     }
     case "running": {
       const title = p.state.title ?? "Running...";

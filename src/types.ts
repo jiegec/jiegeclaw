@@ -4,6 +4,8 @@
  * and messages flow through InboundMessage / OutboundMessage.
  */
 
+import { TextMessage, WsFrame, WsFrameHeaders } from "@wecom/aibot-node-sdk";
+
 /**
  * An image attachment in a message.
  */
@@ -16,6 +18,51 @@ export interface ImageAttachment {
   dataUrl: string;
 }
 
+/**
+ * Base context token interface.
+ * All channel-specific context tokens must extend this.
+ */
+export interface BaseContextToken {
+  /** The channel type this context token belongs to. */
+  channel: string;
+}
+
+/**
+ * Feishu context token.
+ * Uses the message_id to reply to a specific message.
+ */
+export interface FeishuContextToken extends BaseContextToken {
+  channel: "feishu";
+  /** The Feishu message ID used for in-thread replies. */
+  messageId: string;
+}
+
+/**
+ * WeCom context token.
+ * Stores the full WsFrame for reply streaming.
+ */
+export interface WecomContextToken extends BaseContextToken {
+  channel: "wecom";
+  /** The raw WebSocket frame headers from WeCom SDK. */
+  frame: WsFrameHeaders;
+}
+
+/**
+ * Weixin context token.
+ * Uses the context_token for in-thread replies.
+ */
+export interface WeixinContextToken extends BaseContextToken {
+  channel: "weixin";
+  /** The Weixin context token string. */
+  contextToken: string;
+}
+
+/**
+ * Union type of all supported context tokens.
+ * Channels should use type guards to narrow this to their specific type.
+ */
+export type ContextToken = FeishuContextToken | WecomContextToken | WeixinContextToken;
+
 /** A message received from a user via a messaging channel. */
 export interface InboundMessage {
   /** Unique message identifier from the channel platform. */
@@ -26,9 +73,9 @@ export interface InboundMessage {
   text: string;
   /**
    * Platform-specific token used for replying in-thread or as a direct reply.
-   * For example, Feishu uses the message_id to reply to a specific message.
+   * Each channel has its own context token format.
    */
-  contextToken?: any;
+  contextToken?: ContextToken;
   /** Optional image attachments sent with the message. */
   images?: ImageAttachment[];
 }
@@ -42,8 +89,9 @@ export interface OutboundMessage {
   /**
    * If set, the channel will reply to this specific message instead of
    * sending a new standalone message.
+   * Each channel has its own context token format.
    */
-  contextToken?: any;
+  contextToken?: ContextToken;
 }
 
 /**

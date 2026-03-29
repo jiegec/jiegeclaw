@@ -43,7 +43,7 @@ export class PendingReplyManager {
       if (pending.validChoices && !pending.validChoices.includes(text)) {
         console.log(`[${channel.id}] Invalid reply from ${from}: "${text}" (valid: ${pending.validChoices.join(", ")})`);
         const prompt = `Invalid choice. Valid options: ${pending.validChoices.join(", ")}\nPlease try again:`;
-        await channel.send({ to: pending.to, text: prompt, contextToken: "" });
+        await channel.send({ to: pending.to, text: prompt });
         return { id, isValid: false };
       }
       

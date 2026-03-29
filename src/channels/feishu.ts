@@ -6,7 +6,7 @@
  * via Feishu Cards with rate limiting.
  */
 
-import type { Channel, InboundMessage, OutboundMessage, ImageAttachment } from "../types.js";
+import type { Channel, InboundMessage, OutboundMessage, ImageAttachment, FeishuContextToken } from "../types.js";
 import * as Lark from "@larksuiteoapi/node-sdk";
 import type { FeishuChannelConfig } from "./feishu-types.js";
 import { createRl, question } from "../readline.js";
@@ -157,7 +157,7 @@ export class FeishuChannel implements Channel {
               id: message.message_id ?? String(Date.now()),
               from: message.chat_id ?? "",
               text: "",
-              contextToken: message.message_id ?? undefined,
+              contextToken: message.message_id ? { channel: "feishu", messageId: message.message_id } : undefined,
               images,
             });
             return;
@@ -191,7 +191,7 @@ export class FeishuChannel implements Channel {
             id: message.message_id ?? String(Date.now()),
             from: message.chat_id ?? "",
             text,
-            contextToken: message.message_id ?? undefined,
+            contextToken: message.message_id ? { channel: "feishu", messageId: message.message_id } : undefined,
             images,
           });
         },
@@ -215,10 +215,10 @@ export class FeishuChannel implements Channel {
       },
     });
 
-    if (msg.contextToken) {
+    if (msg.contextToken && msg.contextToken.channel === "feishu") {
       // Reply in-thread to the original message
       await client.im.v1.message.reply({
-        path: { message_id: msg.contextToken },
+        path: { message_id: msg.contextToken.messageId },
         data: {
           msg_type: "post",
           content,
@@ -320,10 +320,10 @@ export class FeishuChannel implements Channel {
       },
     });
 
-    if (msg.contextToken) {
+    if (msg.contextToken && msg.contextToken.channel === "feishu") {
       // Reply to the original message
       await client.im.v1.message.reply({
-        path: { message_id: msg.contextToken },
+        path: { message_id: msg.contextToken.messageId },
         data: {
           msg_type: "interactive",
           content: cardContent,
