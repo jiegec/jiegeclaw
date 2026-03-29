@@ -6,11 +6,12 @@
  * via Feishu Cards with rate limiting.
  */
 
-import type { Channel, InboundMessage, OutboundMessage } from "../types.js";
+import type { Channel, InboundMessage, OutboundMessage, ImageAttachment } from "../types.js";
 import * as Lark from "@larksuiteoapi/node-sdk";
 import type { FeishuChannelConfig } from "./feishu-types.js";
 import { createRl, question } from "../readline.js";
 import { RateLimiter, type RateLimitedItem } from "../utils/rate-limiter.js";
+import { bufferToImageAttachment } from "../utils/image.js";
 
 interface StreamContext {
   cardId: string;
@@ -87,6 +88,36 @@ export class FeishuChannel implements Channel {
   }
 
   /**
+   * Download an image from Feishu and convert it to a data URL.
+   */
+  private async downloadImage(messageId: string, imageKey: string): Promise<ImageAttachment | null> {
+    try {
+      const client = this.ensureClient();
+      const response = await client.im.v1.messageResource.get({
+        path: { message_id: messageId, file_key: imageKey },
+        params: {
+          type: "image"
+        }
+      });
+
+      // Get the readable stream and convert to buffer
+      const stream = response.getReadableStream();
+      const chunks: Buffer[] = [];
+
+      for await (const chunk of stream) {
+        chunks.push(Buffer.from(chunk));
+      }
+
+      const buffer = Buffer.concat(chunks);
+
+      return await bufferToImageAttachment(buffer, `image_${imageKey}`);
+    } catch (err) {
+      console.error(`[${this.id}] Error downloading image ${imageKey}:`, (err as Error).message);
+      return null;
+    }
+  }
+
+  /**
    * Start listening for incoming Feishu messages via WebSocket.
    * Parses the message content (which comes as JSON with a "text" field)
    * and forwards text messages to the onMessage callback.
@@ -101,25 +132,68 @@ export class FeishuChannel implements Channel {
     wsClient.start({
       eventDispatcher: new Lark.EventDispatcher({}).register({
         "im.message.receive_v1": async (data) => {
+          console.log(data);
           const { message } = data;
           if (!message?.content) return;
 
-          // Feishu message content is JSON-encoded; try to extract the text field
-          let text: string;
+          // Feishu message content is JSON-encoded
+          let parsed: Record<string, unknown>;
           try {
-            const parsed = JSON.parse(message.content);
-            text = parsed.text ?? "";
+            parsed = JSON.parse(message.content);
           } catch {
-            text = message.content;
+            parsed = {};
           }
 
-          if (!text.trim()) return;
+          const msgType = message.message_type as string;
+          const images: ImageAttachment[] = [];
+
+          // Handle image messages (only image, no text)
+          if (msgType === "image" && parsed.image_key) {
+            const image = await this.downloadImage(message.message_id, parsed.image_key as string);
+            if (image) {
+              images.push(image);
+            }
+            // Image messages have no text content, use empty string
+            onMessage({
+              id: message.message_id ?? String(Date.now()),
+              from: message.chat_id ?? "",
+              text: "",
+              contextToken: message.message_id ?? undefined,
+              images,
+            });
+            return;
+          }
+
+          // Handle text messages (may contain images in rich text)
+          let text: string = "";
+          if (msgType === "text") {
+            text = (parsed.text as string) ?? "";
+          } else if (msgType === "post") {
+            for (const paragraph of (parsed.content as Record<string, unknown>[][])) {
+              for (const content of (paragraph as Record<string, unknown>[])) {
+                if (content.tag === "img") {
+                  const image = await this.downloadImage(message.message_id, content.image_key as string);
+                  if (image) {
+                    images.push(image);
+                  }
+                } else if (content.tag === "text") {
+                  text += content.text ?? "";
+                }
+              }
+            }
+          } else {
+            // Other message types - skip for now
+            return;
+          }
+
+          if (!text.trim() && images.length === 0) return;
 
           onMessage({
             id: message.message_id ?? String(Date.now()),
             from: message.chat_id ?? "",
             text,
             contextToken: message.message_id ?? undefined,
+            images,
           });
         },
       }),
@@ -201,6 +275,15 @@ export class FeishuChannel implements Channel {
       schema: "2.0",
       config: {
         streaming_mode: true,
+        streaming_config: {
+          print_frequency_ms: {
+            default: 100
+          },
+          print_step: {
+            default: 5
+          },
+          print_strategy: "fast"
+        }
       },
       body: {
         elements: [

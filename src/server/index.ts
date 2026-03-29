@@ -59,7 +59,11 @@ export class Server {
 
         try {
           const truncIn = msg.text.length > 100 ? "..." : "";
-          console.log(`[${channel.id}] <${msg.from}: ${msg.text.slice(0, 100)}${truncIn}`);
+          let imagesDesc = "";
+          if (msg.images !== undefined && msg.images.length > 0) {
+            imagesDesc = ` (with ${msg.images.length} image attachments)`;
+          }
+          console.log(`[${channel.id}] <${msg.from}${imagesDesc}: ${msg.text.slice(0, 100)}${truncIn}`);
 
           // Handle slash commands
           const slashMatch = msg.text.match(/^\/(\S+)\s*(.*)/);

@@ -14,7 +14,7 @@
 
 import { spawn } from "node:child_process";
 import { createOpencodeClient } from "@opencode-ai/sdk/v2";
-import type { OpencodeClient } from "@opencode-ai/sdk/v2";
+import type { FilePartInput, OpencodeClient, TextPartInput } from "@opencode-ai/sdk/v2";
 import type { InboundMessage } from "../types.js";
 import {
   loadSessions,
@@ -216,10 +216,39 @@ export class OpencodeHandler {
     // Persist the sender's ID so we can notify them on session restore after restart
     updateChannelSession(channelId, state.directory!, state.sessionID!, msg.from);
 
-    await state.client!.session.promptAsync({
-      sessionID: state.sessionID!,
-      parts: [{ type: "text" as const, text: msg.text }],
-    });
+    // Build parts array with text and optional image attachments
+    const parts: Array<TextPartInput | FilePartInput> = [];
+
+    // Add text part if non-empty
+    if (msg.text.length > 0) {
+      parts.push({ type: "text", text: msg.text });
+    }
+
+    // Add image attachments as file parts with data URLs
+    if (msg.images && msg.images.length > 0) {
+      for (const image of msg.images) {
+        parts.push({
+          type: "file",
+          mime: image.mimeType,
+          filename: image.filename,
+          url: image.dataUrl,
+        });
+      }
+    }
+
+    // Ensure at least one part exists
+    if (parts.length === 0) {
+      return;
+    }
+
+    try {
+      await state.client!.session.promptAsync({
+        sessionID: state.sessionID!,
+        parts,
+      });
+    } catch (err) {
+      console.warn(`[${channelId}] Failed to prompt: ${err}`);
+    }
   }
 
   /**

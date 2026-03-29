@@ -4,6 +4,18 @@
  * and messages flow through InboundMessage / OutboundMessage.
  */
 
+/**
+ * An image attachment in a message.
+ */
+export interface ImageAttachment {
+  /** The MIME type of the image (e.g., "image/png", "image/jpeg"). */
+  mimeType: string;
+  /** The filename of the image. */
+  filename: string;
+  /** The image data as a base64-encoded data URL (e.g., "data:image/png;base64,..."). */
+  dataUrl: string;
+}
+
 /** A message received from a user via a messaging channel. */
 export interface InboundMessage {
   /** Unique message identifier from the channel platform. */
@@ -17,6 +29,8 @@ export interface InboundMessage {
    * For example, Feishu uses the message_id to reply to a specific message.
    */
   contextToken?: any;
+  /** Optional image attachments sent with the message. */
+  images?: ImageAttachment[];
 }
 
 /** A message to be sent back to a user via a messaging channel. */

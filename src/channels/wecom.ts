@@ -6,12 +6,13 @@
  * and markdown-formatted messages.
  */
 
-import type { Channel, InboundMessage, OutboundMessage } from "../types.js";
+import type { Channel, InboundMessage, OutboundMessage, ImageAttachment } from "../types.js";
 import AiBot from "@wecom/aibot-node-sdk";
-import { generateReqId, type WsFrame, type TextMessage } from "@wecom/aibot-node-sdk";
+import { generateReqId, type WsFrame, type TextMessage, type ImageMessage, type MixedMessage, MessageType } from "@wecom/aibot-node-sdk";
 import type { WecomChannelConfig } from "./wecom-types.js";
 import { createRl, question } from "../readline.js";
 import { RateLimiter, RateLimitedItem } from "../utils/rate-limiter.js";
+import { bufferToImageAttachment } from "../utils/image.js";
 
 interface StreamContext {
   streamId: string;
@@ -115,6 +116,66 @@ export class WecomChannel implements Channel {
         from,
         text: body.text.content,
         contextToken,
+      });
+    });
+
+    this.wsClient!.on("message.image", async (frame: WsFrame<ImageMessage>) => {
+      const body = frame.body as ImageMessage;
+      const from = body.from?.userid ?? body.chatid ?? "";
+
+      // Download and decrypt the image using SDK
+      const images: ImageAttachment[] = [];
+      try {
+        const { buffer, filename } = await this.wsClient!.downloadFile(body.image.url, body.image.aeskey);
+        const image = await bufferToImageAttachment(buffer, filename ?? `image_${Date.now()}`);
+        if (image) {
+          images.push(image);
+        }
+      } catch (err) {
+        console.error(`[${this.id}] Failed to download image:`, (err as Error).message);
+      }
+
+      onMessage({
+        id: body.msgid,
+        from,
+        text: "",
+        contextToken: frame,
+        images,
+      });
+    });
+
+    this.wsClient!.on("message.mixed", async (frame: WsFrame<MixedMessage>) => {
+      const body = frame.body as MixedMessage;
+      const from = body.from?.userid ?? body.chatid ?? "";
+
+      // Extract text and images from mixed message
+      let text = "";
+      const images: ImageAttachment[] = [];
+
+      for (const item of body.mixed.msg_item) {
+        if (item.msgtype === "text" && item.text) {
+          text += item.text.content;
+        } else if (item.msgtype === "image" && item.image) {
+          try {
+            const { buffer, filename } = await this.wsClient!.downloadFile(item.image.url, item.image.aeskey);
+            const image = await bufferToImageAttachment(buffer, filename ?? `image_${Date.now()}`);
+            if (image) {
+              images.push(image);
+            }
+          } catch (err) {
+            console.error(`[${this.id}] Failed to download image:`, (err as Error).message);
+          }
+        }
+      }
+
+      if (!text.trim() && images.length === 0) return;
+
+      onMessage({
+        id: body.msgid,
+        from,
+        text,
+        contextToken: frame,
+        images,
       });
     });
 
