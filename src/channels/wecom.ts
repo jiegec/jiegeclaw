@@ -12,6 +12,11 @@ import { generateReqId, type WsFrame, type TextMessage } from "@wecom/aibot-node
 import type { WecomChannelConfig } from "./wecom-types.js";
 import { createRl, question } from "../readline.js";
 
+interface QueuedMessage extends OutboundMessage {
+  streamId?: string;
+  finish?: boolean;
+}
+
 export class WecomChannel implements Channel {
   readonly id: string;
   private botId?: string;
@@ -19,7 +24,7 @@ export class WecomChannel implements Channel {
   private onConfigUpdate: (index: number, update: Partial<WecomChannelConfig>) => void;
   private channelIndex: number;
   private wsClient?: AiBot.WSClient;
-  private queuedMessages: Array<OutboundMessage>;
+  private queuedMessages: Array<QueuedMessage>;
   private authenticated: boolean;
 
   constructor(
@@ -121,13 +126,30 @@ export class WecomChannel implements Channel {
     await this.flush();
   }
 
-  async flush(): Promise<void> {
+  /**
+   * Streaming send for WeCom.
+   * Uses replyStream to update the message in real-time.
+   * @param streamId Unique identifier for this stream (passed to replyStream)
+   * @param msg The message to send
+   * @param finish Whether this is the final message in the stream
+   */
+  async streamSend(streamId: string, msg: OutboundMessage, finish: boolean): Promise<void> {
+    // Queue messages before authentication
+    this.queuedMessages.push({ ...msg, streamId, finish });
+    await this.flush();
+  }
+
+  private async flush(): Promise<void> {
     while (this.authenticated) {
       const newMsg = this.queuedMessages.shift();
       if (newMsg === undefined) {
         break;
+      } else if (newMsg.streamId !== undefined) {
+        // Streaming reply with specific streamId
+        const frame = newMsg.contextToken as WsFrame<TextMessage>;
+        await this.wsClient!.replyStream(frame, newMsg.streamId, newMsg.text, newMsg.finish ?? true);
       } else if (newMsg.contextToken) {
-        // Stream reply to the original message frame
+        // Stream reply to the original message frame (non-streaming, one-shot)
         await this.wsClient!.replyStream(newMsg.contextToken, generateReqId("stream"), newMsg.text, true);
       } else {
         // Send a new standalone markdown message

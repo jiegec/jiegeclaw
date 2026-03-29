@@ -57,6 +57,16 @@ export interface Channel {
   /** Send a message to a user on this channel. */
   send(msg: OutboundMessage): Promise<void>;
 
+  /**
+   * Send a streaming message to a user on this channel.
+   * For channels that support streaming (e.g., WeCom), this will update the message in real-time.
+   * For channels that don't support streaming, only the final message (finish=true) will be sent.
+   * @param streamId Unique identifier for this stream
+   * @param msg The message to send
+   * @param finish Whether this is the final message in the stream
+   */
+  streamSend(streamId: string, msg: OutboundMessage, finish: boolean): Promise<void>;
+
   /** Stop listening and clean up resources. */
   stop(): void;
 }

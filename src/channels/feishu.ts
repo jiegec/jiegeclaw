@@ -144,6 +144,16 @@ export class FeishuChannel implements Channel {
     }
   }
 
+  /**
+   * Streaming send for Feishu.
+   * Feishu doesn't support streaming replies, so we only send when finish=true.
+   */
+  async streamSend(streamId: string, msg: OutboundMessage, finish: boolean): Promise<void> {
+    if (finish) {
+      await this.send(msg);
+    }
+  }
+
   /** No-op: Feishu WSClient doesn't have a clean stop method. */
   stop(): void { }
 }

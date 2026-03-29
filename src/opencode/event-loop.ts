@@ -9,11 +9,17 @@
  * Automatically reconnects on errors with a 1-second delay.
  */
 
-import type { Event, Message } from "@opencode-ai/sdk/v2";
+import type { Event, Message, TextPart } from "@opencode-ai/sdk/v2";
 import type { ChannelState, StreamHandler } from "./types.js";
 import { partToText } from "./formatting.js";
 import { handlePermission, handleQuestion } from "./handlers.js";
 import { createBaseMsg } from "./utils.js";
+
+interface StreamingMessage {
+  streamId: string;
+  content: string;
+  messageId: string;
+}
 
 /**
  * Main event loop for a channel's opencode session.
@@ -31,6 +37,8 @@ export async function runEventLoop(
   const { client, sessionID, abortController, stream } = state;
   // Track full messages to determine the role (user vs assistant) of parts
   const messages: Map<string, Message> = new Map();
+  // Track streaming messages by message ID
+  const streamingMessages: Map<string, StreamingMessage> = new Map();
 
   while (!abortController!.signal.aborted) {
     try {
@@ -40,7 +48,7 @@ export async function runEventLoop(
       for await (const event of result.stream) {
         if (abortController!.signal.aborted) break;
         const baseMsg = createBaseMsg(state);
-        const e = event;
+        const e = event as Event;
 
         // Track subagent sessions spawned by this channel's main session
         if (e.type === "session.updated") {
@@ -86,15 +94,49 @@ export async function runEventLoop(
         } else if (e.type === "message.updated" && isOwnEvent(e.properties.sessionID)) {
           // Track full message metadata for role detection
           messages.set(e.properties.info.id, e.properties.info);
+        } else if (e.type === "message.part.delta" && isOwnEvent(e.properties.sessionID)) {
+          // Handle streaming delta updates
+          const props = e.properties;
+          const role = messages.get(props.messageID)?.role;
+          if (role !== "assistant") continue;
+
+          // Get or create streaming message
+          let streamingMsg = streamingMessages.get(props.messageID);
+          if (!streamingMsg) {
+            streamingMsg = {
+              streamId: crypto.randomUUID(),
+              content: "",
+              messageId: props.messageID,
+            };
+            streamingMessages.set(props.messageID, streamingMsg);
+          }
+
+          // Append delta content (delta contains the text diff)
+          if (props.field === "text") {
+            streamingMsg.content += props.delta;
+          }
+
+          // Send streaming update (finish=false)
+          if (baseMsg !== undefined) {
+            await stream.streamSend(streamingMsg.streamId, { ...baseMsg, text: streamingMsg.content }, false);
+          }
         } else if (e.type === "message.part.updated" && isOwnEvent(e.properties.part.sessionID)) {
           // Stream assistant message parts back to the channel
           const part = e.properties.part;
           const text = partToText(part);
           const role = messages.get(e.properties.part.messageID)?.role;
-          // Only forward assistant messages (not user messages echoing back)
-          if (role === "assistant" && text !== undefined && text.length > 0 && baseMsg !== undefined) {
+
+          // Check if we have a streaming message for this
+          const streamingMsg = streamingMessages.get(e.properties.part.messageID);
+          if (streamingMsg && baseMsg !== undefined) {
+            // Send final update with finish=true
+            await stream.streamSend(streamingMsg.streamId, { ...baseMsg, text: streamingMsg.content }, true);
+            streamingMessages.delete(e.properties.part.messageID);
+          } else if (role === "assistant" && text !== undefined && text.length > 0 && baseMsg !== undefined) {
+            // No streaming, send directly
             await stream.send({ ...baseMsg, text });
           }
+
           // Clear cached message once we've processed parts from it
           if (text !== undefined && text.length > 0) {
             messages.delete(e.properties.part.messageID);

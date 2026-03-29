@@ -18,6 +18,14 @@ export interface StreamHandler {
    * Optionally restrict valid replies to a set of choices.
    */
   waitForReply(msg: OutboundMessage, validChoices?: string[]): Promise<string>;
+  /**
+   * Send a streaming message to the channel.
+   * For channels that support streaming, this will update the message in real-time.
+   * @param streamId Unique identifier for this stream
+   * @param msg The message to send
+   * @param finish Whether this is the final message in the stream
+   */
+  streamSend(streamId: string, msg: OutboundMessage, finish: boolean): Promise<void>;
 }
 
 /** Represents a running opencode server child process. */

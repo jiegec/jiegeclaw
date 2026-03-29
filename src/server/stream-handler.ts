@@ -91,4 +91,12 @@ export class ChannelStreamHandler implements StreamHandler {
     await this.channel.send(msg);
     return this.replyManager.register(id, msg.to, validChoices);
   }
+
+  async streamSend(streamId: string, msg: OutboundMessage, finish: boolean): Promise<void> {
+    await this.channel.streamSend(streamId, msg, finish);
+    if (finish) {
+      const truncOut = msg.text.length > 200 ? "..." : "";
+      console.log(`[${this.channel.id}] >${msg.to}: ${msg.text.slice(0, 200)}${truncOut}`);
+    }
+  }
 }

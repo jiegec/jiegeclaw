@@ -218,6 +218,16 @@ export class WeixinChannel implements Channel {
     });
   }
 
+  /**
+   * Streaming send for Weixin.
+   * Weixin doesn't support streaming, so we only send when finish=true.
+   */
+  async streamSend(streamId: string, msg: OutboundMessage, finish: boolean): Promise<void> {
+    if (finish) {
+      await this.send(msg);
+    }
+  }
+
   /** Abort the long-polling loop. */
   stop(): void {
     this.abortController?.abort();
