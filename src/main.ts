@@ -12,8 +12,8 @@
 import { spawn } from "node:child_process";
 import { loadConfig, saveConfig, makeConfigUpdater, createChannel } from "./config.js";
 import type { ChannelConfig } from "./config.js";
-import type { Channel } from "./types.js";
 import { stringify } from "yaml";
+import logger from "./utils/logger.js";
 
 /** Config field names that contain secrets and should be masked in output. */
 const SECRET_KEYS = ["token", "userId", "appSecret", "secret"];
@@ -48,8 +48,8 @@ async function main(): Promise<void> {
       await setupChannels();
       break;
     default:
-      console.error(`Unknown command: ${command}`);
-      console.error("Usage: jiegeclaw [start|setup]");
+      logger.error(`Unknown command: ${command}`);
+      logger.error("Usage: jiegeclaw [start|setup]");
       process.exit(1);
   }
 }
@@ -73,19 +73,19 @@ function supervise(): Promise<void> {
 
       child.on("exit", (code) => {
         if (code === RESTART_EXIT_CODE) {
-          console.log("[supervisor] Child requested restart, relaunching...");
+          logger.info("[supervisor] Child requested restart, relaunching...");
           launch();
         } else if (code === 0) {
-          console.log("[supervisor] Child exited cleanly.");
+          logger.info("[supervisor] Child exited cleanly.");
           resolve();
         } else {
-          console.error(`[supervisor] Child crashed with code ${code}, relaunching in 3s...`);
+          logger.error(`[supervisor] Child crashed with code ${code}, relaunching in 3s...`);
           setTimeout(launch, 3000);
         }
       });
 
       child.on("error", (err) => {
-        console.error(`[supervisor] Failed to spawn child: ${err.message}`);
+        logger.error(`[supervisor] Failed to spawn child: ${err.message}`);
         setTimeout(launch, 3000);
       });
     }
@@ -115,7 +115,7 @@ async function setupChannels(): Promise<void> {
     try {
       await channel.onboard();
     } catch (err) {
-      console.error(`Failed to setup ${type}: ${(err as Error).message}`);
+      logger.error(`Failed to setup ${type}: ${(err as Error).message}`);
       process.exit(1);
     }
 
@@ -129,20 +129,20 @@ async function setupChannels(): Promise<void> {
   if (!action) {
     // List configured channels
     if (!config.channels.length) {
-      console.log("No channels configured. Add one with:");
-      console.log("  jiegeclaw setup add <type>");
+      logger.info("No channels configured. Add one with:");
+      logger.info("  jiegeclaw setup add <type>");
       return;
     }
-    console.log("Configured channels:");
-    console.log(stringify(maskSecrets(config.channels)));
+    logger.info("Configured channels:");
+    logger.info(stringify(maskSecrets(config.channels)));
     return;
   }
 
-  console.error(`Usage: jiegeclaw setup [add <type>]`);
+  logger.error(`Usage: jiegeclaw setup [add <type>]`);
   process.exit(1);
 }
 
 main().catch((err) => {
-  console.error("Fatal error:", err);
+  logger.error("Fatal error:", err);
   process.exit(1);
 });

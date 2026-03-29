@@ -12,6 +12,7 @@ import type { FeishuChannelConfig } from "./feishu-types.js";
 import { createRl, question } from "../readline.js";
 import { RateLimiter, type RateLimitedItem } from "../utils/rate-limiter.js";
 import { bufferToImageAttachment } from "../utils/image.js";
+import logger from "../utils/logger.js";
 
 interface StreamContext {
   cardId: string;
@@ -54,7 +55,7 @@ export class FeishuChannel implements Channel {
    */
   async onboard(): Promise<void> {
     if (this.appId && this.appSecret) {
-      console.log("Feishu already configured. App:", this.appId);
+      logger.info(`Feishu already configured. App: ${this.appId}`);
       return;
     }
 
@@ -74,7 +75,7 @@ export class FeishuChannel implements Channel {
       appId: this.appId,
       appSecret: this.appSecret,
     });
-    console.log("\nFeishu connected successfully!");
+    logger.info("\nFeishu connected successfully!");
   }
 
   private ensureClient(): Lark.Client {
@@ -112,7 +113,7 @@ export class FeishuChannel implements Channel {
 
       return await bufferToImageAttachment(buffer, `image_${imageKey}`);
     } catch (err) {
-      console.error(`[${this.id}] Error downloading image ${imageKey}:`, (err as Error).message);
+      logger.error(`[${this.id}] Error downloading image ${imageKey}: ${(err as Error).message}`);
       return null;
     }
   }
@@ -371,7 +372,7 @@ export class FeishuChannel implements Channel {
           },
         });
       } catch (err) {
-        console.error(`[${this.id}] Failed to update card ${ctx.cardId}:`, (err as Error).message);
+        logger.error(`[${this.id}] Failed to update card ${ctx.cardId}: ${(err as Error).message}`);
       }
     }
   }

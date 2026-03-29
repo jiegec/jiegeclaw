@@ -13,6 +13,7 @@ import { loadConfig, makeConfigUpdater, createChannel } from "../config.js";
 import type { ChannelConfig } from "../config.js";
 import { getCommand, hasCommand } from "./commands.js";
 import { PendingReplyManager, ChannelStreamHandler } from "./stream-handler.js";
+import logger from "../utils/logger.js";
 
 export class Server {
   private channels: Channel[] = [];
@@ -43,7 +44,7 @@ export class Server {
       try {
         await this.handler.ensureSession(channel.id);
       } catch (err) {
-        console.log(`[${channel.id}] No saved session to resume: ${(err as Error).message}`);
+        logger.info(`[${channel.id}] No saved session to resume: ${(err as Error).message}`);
       }
     }
 
@@ -63,7 +64,7 @@ export class Server {
           if (msg.images !== undefined && msg.images.length > 0) {
             imagesDesc = ` (with ${msg.images.length} image attachments)`;
           }
-          console.log(`[${channel.id}] <${msg.from}${imagesDesc}: ${msg.text.slice(0, 100)}${truncIn}`);
+          logger.info(`[${channel.id}] <${msg.from}${imagesDesc}: ${msg.text.slice(0, 100)}${truncIn}`);
 
           // Handle slash commands
           const slashMatch = msg.text.match(/^\/(\S+)\s*(.*)/);
@@ -82,7 +83,7 @@ export class Server {
 
           // Require a working directory before forwarding to opencode
           if (!this.handler.hasDirectory(channel.id)) {
-            console.log(`[${channel.id}] No directory set, prompting user`);
+            logger.info(`[${channel.id}] No directory set, prompting user`);
             await channel.send({ to: msg.from, text: "No directory set. Use `/cd <path>` to select a project directory.", contextToken: msg.contextToken });
             return;
           }
@@ -91,7 +92,7 @@ export class Server {
           await this.handler.ensureSession(channel.id);
           await this.handler.handle(channel.id, msg);
         } catch (err) {
-          console.error(`[${channel.id}] Error handling message from ${msg.from}:`, (err as Error).message);
+          logger.error(`[${channel.id}] Error handling message from ${msg.from}: ${(err as Error).message}`);
           try {
             await channel.send({
               to: msg.from,
@@ -99,7 +100,7 @@ export class Server {
               contextToken: msg.contextToken,
             });
           } catch {
-            console.error(`[${channel.id}] Failed to send error message`);
+            logger.error(`[${channel.id}] Failed to send error message`);
           }
         }
       })
@@ -112,7 +113,7 @@ export class Server {
     await this.handler.stop();
     this.replyManager.clearAll();
     for (const channel of this.channels) {
-      channel.stop();
+      await channel.stop();
     }
   }
 }
@@ -121,7 +122,7 @@ export async function runServer(): Promise<void> {
   const config = loadConfig();
 
   if (!config.channels.length) {
-    console.error("No channels configured. Run `jiegeclaw setup` first.");
+    logger.error("No channels configured. Run `jiegeclaw setup` first.");
     process.exit(1);
   }
 
@@ -134,16 +135,16 @@ export async function runServer(): Promise<void> {
     server.addChannel(channel);
   }
 
-  console.log(`Starting jiegeclaw with ${config.channels.length} channel(s)...`);
+  logger.info(`Starting jiegeclaw with ${config.channels.length} channel(s)...`);
 
   const shutdown = async () => {
-    console.log("\nShutting down...");
+    logger.info("\nShutting down...");
     await server.stop();
     process.exit(0);
   };
 
   process.on("SIGUSR2", async () => {
-    console.log("\nRestarting...");
+    logger.info("\nRestarting...");
     await server.stop();
     process.exit(42);
   });
@@ -155,6 +156,6 @@ export async function runServer(): Promise<void> {
 }
 
 runServer().catch((err) => {
-  console.error("Fatal error:", err);
+  logger.error("Fatal error:", err);
   process.exit(1);
 });

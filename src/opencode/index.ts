@@ -25,6 +25,7 @@ import {
 } from "../config.js";
 import type { StreamHandler, ServerProcess, ChannelState } from "./types.js";
 import { runEventLoop } from "./event-loop.js";
+import logger from "../utils/logger.js";
 
 export type { StreamHandler } from "./types.js";
 
@@ -77,7 +78,7 @@ export class OpencodeHandler {
     const session = await client.session.create();
     const sessionID = session.data?.id;
     if (sessionID === undefined) throw new Error("Failed to create session");
-    console.log(`[${channelId}] Created new session ${sessionID}`);
+    logger.info(`[${channelId}] Created new session ${sessionID}`);
     return sessionID;
   }
 
@@ -105,7 +106,7 @@ export class OpencodeHandler {
     // Persist the new session mapping
     updateChannelSession(channelId, state.directory, newSessionID);
 
-    console.log(`[${channelId}] Reset to new session ${newSessionID}`);
+    logger.info(`[${channelId}] Reset to new session ${newSessionID}`);
 
     // Launch a new event loop for the new session
     runEventLoop(channelId, state);
@@ -148,7 +149,7 @@ export class OpencodeHandler {
 
     // Tear down any existing server for this channel
     if (existing?.server) {
-      console.log(`[${channelId}] Tearing down old server in ${existing.directory}`);
+      logger.info(`[${channelId}] Tearing down old server in ${existing.directory}`);
       existing.abortController?.abort();
       existing.activeMsg = undefined;
       existing.server.close();
@@ -160,9 +161,9 @@ export class OpencodeHandler {
 
     // Spawn a new opencode server on a unique port
     const port = this.portCounter++;
-    console.log(`[${channelId}] Spawning opencode serve on port ${port}...`);
+    logger.info(`[${channelId}] Spawning opencode serve on port ${port}...`);
     const server = await this.spawnServer(directory, port);
-    console.log(`[${channelId}] Server started at ${server.url} (PID: ${server.proc.pid})`);
+    logger.info(`[${channelId}] Server started at ${server.url} (PID: ${server.proc.pid})`);
     const client = createOpencodeClient({ baseUrl: server.url });
 
     // Try to reuse the saved session, or create a new one
@@ -173,9 +174,9 @@ export class OpencodeHandler {
         const session = await client.session.get({ sessionID: savedSessionID });
         sessionID = savedSessionID;
         sessionTitle = session.data?.title;
-        console.log(`[${channelId}] Reusing session ${sessionID} for ${directory}: ${sessionTitle}`);
+        logger.info(`[${channelId}] Reusing session ${sessionID} for ${directory}: ${sessionTitle}`);
       } catch {
-        console.log(`[${channelId}] Saved session ${savedSessionID} not found, creating new one`);
+        logger.info(`[${channelId}] Saved session ${savedSessionID} not found, creating new one`);
         sessionID = await this.createSession(channelId, client);
       }
     } else {
@@ -198,7 +199,7 @@ export class OpencodeHandler {
     };
     this.channelStates.set(channelId, state);
 
-    console.log(`[${channelId}] Session ${sessionID} in ${directory}`);
+    logger.info(`[${channelId}] Session ${sessionID} in ${directory}`);
     runEventLoop(channelId, state);
   }
 
@@ -248,7 +249,7 @@ export class OpencodeHandler {
         variant: "max"
       });
     } catch (err) {
-      console.warn(`[${channelId}] Failed to prompt: ${err}`);
+      logger.warn(`[${channelId}] Failed to prompt: ${err}`);
     }
   }
 
@@ -267,10 +268,10 @@ export class OpencodeHandler {
       await state.client.session.abort({
         sessionID: state.sessionID,
       });
-      console.log(`[${channelId}] Aborted session ${state.sessionID}`);
+      logger.info(`[${channelId}] Aborted session ${state.sessionID}`);
       return true;
     } catch (err) {
-      console.error(`[${channelId}] Failed to abort: ${err}`);
+      logger.error(`[${channelId}] Failed to abort: ${err}`);
       return false;
     }
   }
@@ -329,24 +330,24 @@ export class OpencodeHandler {
   async stop(): Promise<void> {
     const stopPromises: Promise<void>[] = [];
     for (const [channelId, state] of this.channelStates) {
-      console.log(`[${channelId}] Stopping session ${state.sessionID}`);
+      logger.info(`[${channelId}] Stopping session ${state.sessionID}`);
       state.activeMsg = undefined;
       if (state.client !== undefined) {
         await state.client!.global.dispose();
         state.abortController!.abort();
 
         const server = state.server!;
-        console.log(`[${channelId}] Killing opencode server process (PID: ${server.proc.pid})`);
+        logger.info(`[${channelId}] Killing opencode server process (PID: ${server.proc.pid})`);
         server.close();
         // Wait for the process to actually exit
         const waitPromise = new Promise<void>((resolve) => {
           server.proc.on("exit", () => {
-            console.log(`[${channelId}] Opencode server process exited`);
+            logger.info(`[${channelId}] Opencode server process exited`);
             resolve();
           });
           // Also resolve if process already exited
           if (server.proc.exitCode !== null) {
-            console.log(`[${channelId}] Opencode server process already exited (code: ${server.proc.exitCode})`);
+            logger.info(`[${channelId}] Opencode server process already exited (code: ${server.proc.exitCode})`);
             resolve();
           }
         });
@@ -355,6 +356,6 @@ export class OpencodeHandler {
     }
 
     await Promise.all(stopPromises);
-    console.log("All opencode server processes stopped");
+    logger.info("All opencode server processes stopped");
   }
 }

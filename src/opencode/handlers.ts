@@ -7,6 +7,7 @@
 import type { OpencodeClient, PermissionRequest, QuestionRequest } from "@opencode-ai/sdk/v2";
 import type { ChannelState, StreamHandler } from "./types.js";
 import { createBaseMsg } from "./utils.js";
+import logger from "../utils/logger.js";
 
 /**
  * Handle a permission request from opencode (e.g., tool approval).
@@ -34,18 +35,18 @@ export async function handlePermission(
 
   const choice = mapReplyToChoice(reply);
   if (choice === undefined) {
-    console.warn(`[${channelId}] Unrecognized permission reply: "${reply}"`);
+    logger.warn(`[${channelId}] Unrecognized permission reply: "${reply}"`);
     return;
   }
 
   try {
-    console.log(`[${channelId}] Permission reply: ${choice} (request ${permission.id})`);
+    logger.info(`[${channelId}] Permission reply: ${choice} (request ${permission.id})`);
     await client.permission.reply({
       requestID: permission.id,
       reply: choice,
     });
   } catch (err) {
-    console.error(`Failed to respond to permission ${permission.id}:`, (err as Error).message);
+    logger.error(`Failed to respond to permission ${permission.id}: ${(err as Error).message}`);
   }
 }
 
@@ -98,7 +99,7 @@ export async function handleQuestion(
       { ...baseMsg, text: questionText },
       labels,
     );
-    console.log(`[${channelId}] Question answered: "${answer}"`);
+    logger.info(`[${channelId}] Question answered: "${answer}"`);
     answers.push([answer]);
   }
 
@@ -108,6 +109,6 @@ export async function handleQuestion(
       answers: answers,
     });
   } catch (err) {
-    console.error(`Failed to reply to question ${request.id}:`, (err as Error).message);
+    logger.error(`Failed to reply to question ${request.id}: ${(err as Error).message}`);
   }
 }

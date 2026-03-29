@@ -14,6 +14,7 @@ import type { ChannelState, StreamHandler } from "./types.js";
 import { partToText, formatStreamingContent, formatToolPart } from "./formatting.js";
 import { handlePermission, handleQuestion } from "./handlers.js";
 import { createBaseMsg } from "./utils.js";
+import logger from "../utils/logger.js";
 
 interface StreamingPart {
   streamId: string;
@@ -32,9 +33,9 @@ export async function runEventLoop(
   channelId: string,
   state: ChannelState,
 ): Promise<void> {
-  console.log(`[${channelId}] Event loop started`);
+  logger.info(`[${channelId}] Event loop started`);
   if (!state) {
-    console.log(`[${channelId}] Event loop exiting: no state`);
+    logger.info(`[${channelId}] Event loop exiting: no state`);
     return;
   }
 
@@ -47,7 +48,7 @@ export async function runEventLoop(
   while (!abortController!.signal.aborted) {
     try {
       const result = await client!.event.subscribe();
-      console.log(`[${channelId}] Event stream connected`);
+      logger.info(`[${channelId}] Event stream connected`);
 
       for await (const event of result.stream) {
         if (abortController!.signal.aborted) break;
@@ -64,7 +65,7 @@ export async function runEventLoop(
               const title = info.title ?? "subagent";
               await stream.send({ ...baseMsg, text: `🤖 Launching subagent: **${title}**` });
             }
-            console.log(`[${channelId}] Tracking child session ${e.properties.sessionID}`);
+            logger.info(`[${channelId}] Tracking child session ${e.properties.sessionID}`);
           }
         } else if (e.type === "session.status" && e.properties.sessionID !== sessionID && state.childSessionIDs!.has(e.properties.sessionID)) {
           // Notify when a subagent finishes its work
@@ -88,7 +89,7 @@ export async function runEventLoop(
           if (baseMsg !== undefined) {
             await stream.send({ ...baseMsg, text: `Error: ${errMsg}` });
           }
-          console.error(`[${channelId}] Session error: ${errMsg}`);
+          logger.error(`[${channelId}] Session error: ${errMsg}`);
         } else if (e.type === "permission.asked" && isOwnEvent(e.properties.sessionID)) {
           // Handle permission requests (ask user to approve/deny tool execution)
           await handlePermission(channelId, client!, stream, state, e.properties);
@@ -107,7 +108,7 @@ export async function runEventLoop(
           // Get the streaming part - it should have been created by the first message.part.updated
           const streamingPart = streamingParts.get(props.partID);
           if (!streamingPart) {
-            console.warn(`[${channelId}] message.part.delta received for part ${props.partID} but no streamingPart found`);
+            logger.warn(`[${channelId}] message.part.delta received for part ${props.partID} but no streamingPart found`);
             continue;
           }
 
@@ -205,9 +206,9 @@ export async function runEventLoop(
         }
       }
     } catch (err) {
-      console.error(`[${channelId}] Event loop error, reconnecting:`, (err as Error).message);
+      logger.error(`[${channelId}] Event loop error, reconnecting: ${(err as Error).message}`);
       await new Promise((r) => setTimeout(r, 1000));
     }
   }
-  console.log(`[${channelId}] Event loop exited`);
+  logger.info(`[${channelId}] Event loop exited`);
 }

@@ -6,6 +6,7 @@
 
 import type { Channel, OutboundMessage } from "../types.js";
 import type { StreamHandler } from "../opencode/types.js";
+import logger from "../utils/logger.js";
 
 interface PendingReply {
   resolve: (reply: string) => void;
@@ -41,14 +42,14 @@ export class PendingReplyManager {
       if (pending.to !== from) continue;
       
       if (pending.validChoices && !pending.validChoices.includes(text)) {
-        console.log(`[${channel.id}] Invalid reply from ${from}: "${text}" (valid: ${pending.validChoices.join(", ")})`);
+        logger.info(`[${channel.id}] Invalid reply from ${from}: "${text}" (valid: ${pending.validChoices.join(", ")})`);
         const prompt = `Invalid choice. Valid options: ${pending.validChoices.join(", ")}\nPlease try again:`;
         await channel.send({ to: pending.to, text: prompt });
         return { id, isValid: false };
       }
       
       this.pendingReplies.delete(id);
-      console.log(`[${channel.id}] Resolved pending reply from ${from}: "${text}"`);
+      logger.info(`[${channel.id}] Resolved pending reply from ${from}: "${text}"`);
       pending.resolve(text);
       return { id, isValid: true };
     }
@@ -82,12 +83,12 @@ export class ChannelStreamHandler implements StreamHandler {
   async send(msg: OutboundMessage): Promise<void> {
     await this.channel.send(msg);
     const truncOut = msg.text.length > 200 ? "..." : "";
-    console.log(`[${this.channel.id}] >${msg.to}: ${msg.text.slice(0, 200)}${truncOut}`);
+    logger.info(`[${this.channel.id}] >${msg.to}: ${msg.text.slice(0, 200)}${truncOut}`);
   }
 
   async waitForReply(msg: OutboundMessage, validChoices?: string[]): Promise<string> {
     const id = crypto.randomUUID();
-    console.log(`[${this.channel.id}] Waiting for reply from ${msg.to}${validChoices ? ` (choices: ${validChoices.join(", ")})` : ""}`);
+    logger.info(`[${this.channel.id}] Waiting for reply from ${msg.to}${validChoices ? ` (choices: ${validChoices.join(", ")})` : ""}`);
     await this.channel.send(msg);
     return this.replyManager.register(id, msg.to, validChoices);
   }
@@ -96,7 +97,7 @@ export class ChannelStreamHandler implements StreamHandler {
     await this.channel.streamSend(streamId, msg, finish);
     if (finish) {
       const truncOut = msg.text.length > 200 ? "..." : "";
-      console.log(`[${this.channel.id}] >${msg.to}: ${msg.text.slice(0, 200)}${truncOut}`);
+      logger.info(`[${this.channel.id}] >${msg.to}: ${msg.text.slice(0, 200)}${truncOut}`);
     }
   }
 }

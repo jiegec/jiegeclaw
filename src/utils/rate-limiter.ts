@@ -3,6 +3,8 @@
  * Ensures minimum time interval between executions and only keeps the latest call data.
  */
 
+import logger from "../utils/logger.js";
+
 export interface RateLimitedItem<T> {
   id: string;
   data: T;
@@ -67,7 +69,7 @@ export class RateLimiter<T> {
       try {
         await this.flushCallback(itemsToFlush);
       } catch (err) {
-        console.error("RateLimiter flush failed:", (err as Error).message);
+        logger.error(`RateLimiter flush failed: ${(err as Error).message}`);
       }
     }
     this.isFlushing = false;

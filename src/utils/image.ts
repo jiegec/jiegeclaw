@@ -4,6 +4,7 @@
 
 import { fileTypeFromBuffer } from "file-type";
 import type { ImageAttachment } from "../types.js";
+import logger from "../utils/logger.js";
 
 /**
  * Convert a buffer to an ImageAttachment with proper MIME type detection.
@@ -28,7 +29,7 @@ export async function bufferToImageAttachment(
       dataUrl: `data:${mimeType};base64,${base64}`,
     };
   } catch (err) {
-    console.error("Error converting buffer to image attachment:", (err as Error).message);
+    logger.error(`Error converting buffer to image attachment: ${(err as Error).message}`);
     return null;
   }
 }

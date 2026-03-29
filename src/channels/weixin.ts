@@ -19,6 +19,7 @@ import qrcodeTerminal from "qrcode-terminal";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import logger from "../utils/logger.js";
 
 const CONFIG_DIR = path.join(os.homedir(), ".jiegeclaw");
 const SYNC_BUF_PATH = path.join(CONFIG_DIR, "weixin-sync-buf.txt");
@@ -88,11 +89,11 @@ export class WeixinChannel implements Channel {
    */
   async onboard(): Promise<void> {
     if (this.token) {
-      console.log(`Weixin already configured. Account: ${this.accountId}`);
+      logger.info(`Weixin already configured. Account: ${this.accountId}`);
       return;
     }
 
-    console.log("Starting Weixin QR login...");
+    logger.info("Starting Weixin QR login...");
     const startResult = await startWeixinLoginWithQr({
       apiBaseUrl: DEFAULT_BASE_URL,
     });
@@ -102,18 +103,18 @@ export class WeixinChannel implements Channel {
     }
 
     // Display the QR code in the terminal
-    console.log("\nScan the QR code with Weixin:\n");
+    logger.info("\nScan the QR code with Weixin:\n");
     await new Promise<void>((resolve) => {
       qrcodeTerminal.generate(startResult.qrcodeUrl!, { small: true }, (qr: string) => {
-        console.log(qr);
-        console.log("\nOr open this URL to scan:");
-        console.log(startResult.qrcodeUrl!);
+        logger.info(qr);
+        logger.info("\nOr open this URL to scan:");
+        logger.info(startResult.qrcodeUrl!);
         resolve();
       });
     });
 
     // Wait for the user to scan the QR code and approve the login
-    console.log("\nWaiting for scan result...");
+    logger.info("\nWaiting for scan result...");
     const waitResult = await waitForWeixinLogin({
       sessionKey: startResult.sessionKey,
       apiBaseUrl: DEFAULT_BASE_URL,
@@ -132,7 +133,7 @@ export class WeixinChannel implements Channel {
       accountId: this.accountId,
       userId: this.userId,
     });
-    console.log("\nWeixin connected successfully!");
+    logger.info("\nWeixin connected successfully!");
   }
 
   /**
@@ -144,7 +145,7 @@ export class WeixinChannel implements Channel {
     this.abortController = new AbortController();
     let getUpdatesBuf = loadSyncBuf();
 
-    console.log(`Listening for Weixin messages (account: ${this.accountId})...`);
+    logger.info(`Listening for Weixin messages (account: ${this.accountId})...`);
 
     while (!this.abortController.signal.aborted) {
       try {
@@ -156,7 +157,7 @@ export class WeixinChannel implements Channel {
         });
 
         if (resp.ret !== undefined && resp.ret !== 0) {
-          console.error(`getUpdates error: ret=${resp.ret} errmsg=${resp.errmsg}`);
+          logger.error(`getUpdates error: ret=${resp.ret} errmsg=${resp.errmsg}`);
           await sleep(5000, this.abortController.signal);
           continue;
         }
@@ -183,7 +184,7 @@ export class WeixinChannel implements Channel {
         }
       } catch (err) {
         if (this.abortController.signal.aborted) break;
-        console.error("getUpdates error:", (err as Error).message);
+        logger.error(`getUpdates error: ${(err as Error).message}`);
         await sleep(5000, this.abortController.signal);
       }
     }

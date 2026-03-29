@@ -13,6 +13,7 @@ import type { WecomChannelConfig } from "./wecom-types.js";
 import { createRl, question } from "../readline.js";
 import { RateLimiter, RateLimitedItem } from "../utils/rate-limiter.js";
 import { bufferToImageAttachment } from "../utils/image.js";
+import logger from "../utils/logger.js";
 
 interface StreamContext {
   streamId: string;
@@ -55,7 +56,7 @@ export class WecomChannel implements Channel {
    */
   async onboard(): Promise<void> {
     if (this.botId && this.secret) {
-      console.log("WeCom already configured. Bot:", this.botId);
+      logger.info(`WeCom already configured. Bot: ${this.botId}`);
       return;
     }
 
@@ -75,7 +76,7 @@ export class WecomChannel implements Channel {
       botId: this.botId,
       secret: this.secret,
     });
-    console.log("\nWeCom connected successfully!");
+    logger.info("\nWeCom connected successfully!");
   }
 
   ensureClient() {
@@ -97,7 +98,7 @@ export class WecomChannel implements Channel {
     this.ensureClient();
 
     this.wsClient!.on("authenticated", () => {
-      console.log(`[${this.id}] WeCom authenticated`);
+      logger.info(`[${this.id}] WeCom authenticated`);
       this.authenticated = true;
       this.flush();
     });
@@ -132,7 +133,7 @@ export class WecomChannel implements Channel {
           images.push(image);
         }
       } catch (err) {
-        console.error(`[${this.id}] Failed to download image:`, (err as Error).message);
+        logger.error(`[${this.id}] Failed to download image: ${(err as Error).message}`);
       }
 
       const contextToken: WecomContextToken = { channel: "wecom", frame };
@@ -165,7 +166,7 @@ export class WecomChannel implements Channel {
               images.push(image);
             }
           } catch (err) {
-            console.error(`[${this.id}] Failed to download image:`, (err as Error).message);
+            logger.error(`[${this.id}] Failed to download image: ${(err as Error).message}`);
           }
         }
       }
@@ -212,7 +213,7 @@ export class WecomChannel implements Channel {
     const frame = msg.contextToken.frame;
 
     if (!frame) {
-      console.warn(`[${this.id}] streamSend called without valid WeCom contextToken`);
+      logger.warn(`[${this.id}] streamSend called without valid WeCom contextToken`);
       return;
     }
 
@@ -252,7 +253,7 @@ export class WecomChannel implements Channel {
       try {
         await this.wsClient!.replyStream(ctx.frame, ctx.streamId, ctx.content, ctx.finish);
       } catch (err) {
-        console.error(`[${this.id}] Failed to send stream ${streamId}:`, (err as Error).message);
+        logger.error(`[${this.id}] Failed to send stream ${streamId}: ${(err as Error).message}`);
       }
     }
   }
