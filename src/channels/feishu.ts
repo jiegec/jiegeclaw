@@ -132,7 +132,6 @@ export class FeishuChannel implements Channel {
     wsClient.start({
       eventDispatcher: new Lark.EventDispatcher({}).register({
         "im.message.receive_v1": async (data) => {
-          console.log(data);
           const { message } = data;
           if (!message?.content) return;
 
