@@ -11,14 +11,16 @@
 
 import type { Event, Message, TextPart } from "@opencode-ai/sdk/v2";
 import type { ChannelState, StreamHandler } from "./types.js";
-import { partToText } from "./formatting.js";
+import { partToText, formatStreamingContent } from "./formatting.js";
 import { handlePermission, handleQuestion } from "./handlers.js";
 import { createBaseMsg } from "./utils.js";
 
-interface StreamingMessage {
+interface StreamingPart {
   streamId: string;
   content: string;
   messageId: string;
+  partId: string;
+  partType: string;
 }
 
 /**
@@ -37,8 +39,8 @@ export async function runEventLoop(
   const { client, sessionID, abortController, stream } = state;
   // Track full messages to determine the role (user vs assistant) of parts
   const messages: Map<string, Message> = new Map();
-  // Track streaming messages by message ID
-  const streamingMessages: Map<string, StreamingMessage> = new Map();
+  // Track streaming parts by part ID (each part has its own streaming)
+  const streamingParts: Map<string, StreamingPart> = new Map();
 
   while (!abortController!.signal.aborted) {
     try {
@@ -95,51 +97,73 @@ export async function runEventLoop(
           // Track full message metadata for role detection
           messages.set(e.properties.info.id, e.properties.info);
         } else if (e.type === "message.part.delta" && isOwnEvent(e.properties.sessionID)) {
-          // Handle streaming delta updates
+          // Handle streaming delta updates for each part
           const props = e.properties;
           const role = messages.get(props.messageID)?.role;
           if (role !== "assistant") continue;
 
-          // Get or create streaming message
-          let streamingMsg = streamingMessages.get(props.messageID);
-          if (!streamingMsg) {
-            streamingMsg = {
-              streamId: crypto.randomUUID(),
-              content: "",
-              messageId: props.messageID,
-            };
-            streamingMessages.set(props.messageID, streamingMsg);
+          // Get the streaming part - it should have been created by the first message.part.updated
+          const streamingPart = streamingParts.get(props.partID);
+          if (!streamingPart) {
+            console.warn(`[${channelId}] message.part.delta received for part ${props.partID} but no streamingPart found`);
+            continue;
           }
 
           // Append delta content (delta contains the text diff)
           if (props.field === "text") {
-            streamingMsg.content += props.delta;
+            streamingPart.content += props.delta;
           }
 
-          // Send streaming update (finish=false)
+          // Send streaming update (finish=false) with proper formatting
           if (baseMsg !== undefined) {
-            await stream.streamSend(streamingMsg.streamId, { ...baseMsg, text: streamingMsg.content }, false);
+            const displayContent = formatStreamingContent(streamingPart.content, streamingPart.partType);
+            await stream.streamSend(streamingPart.streamId, { ...baseMsg, text: displayContent }, false);
           }
         } else if (e.type === "message.part.updated" && isOwnEvent(e.properties.part.sessionID)) {
           // Stream assistant message parts back to the channel
           const part = e.properties.part;
-          const text = partToText(part);
-          const role = messages.get(e.properties.part.messageID)?.role;
+          const role = messages.get(part.messageID)?.role;
+          if (role !== "assistant") continue;
 
-          // Check if we have a streaming message for this
-          const streamingMsg = streamingMessages.get(e.properties.part.messageID);
-          if (streamingMsg && baseMsg !== undefined) {
-            // Send final update with finish=true
-            await stream.streamSend(streamingMsg.streamId, { ...baseMsg, text: streamingMsg.content }, true);
-            streamingMessages.delete(e.properties.part.messageID);
-          } else if (role === "assistant" && text !== undefined && text.length > 0 && baseMsg !== undefined) {
-            // No streaming, send directly
-            await stream.send({ ...baseMsg, text });
-          }
+          // Only process text and reasoning parts for streaming display
+          if (part.type === "text" || part.type === "reasoning") {
+            // Check if we have a streaming part for this (tracked by partID)
+            const streamingPart = streamingParts.get(part.id);
 
-          // Clear cached message once we've processed parts from it
-          if (text !== undefined && text.length > 0) {
-            messages.delete(e.properties.part.messageID);
+            if (!streamingPart) {
+              // First message.part.updated - create the streamingPart (part is created)
+              const newStreamingPart = {
+                streamId: crypto.randomUUID(),
+                content: part.text,
+                messageId: part.messageID,
+                partId: part.id,
+                partType: part.type,
+              };
+              streamingParts.set(part.id, newStreamingPart);
+
+              // Send initial update (finish=false)
+              if (baseMsg !== undefined) {
+                const displayContent = formatStreamingContent(newStreamingPart.content, newStreamingPart.partType);
+                await stream.streamSend(newStreamingPart.streamId, { ...baseMsg, text: displayContent }, false);
+              }
+            } else if (part.time?.end) {
+              // Part is complete (has end time) - send final update with finish=true
+              if (part.text) {
+                streamingPart.content = part.text;
+              }
+
+              if (baseMsg !== undefined) {
+                const displayContent = formatStreamingContent(streamingPart.content, streamingPart.partType);
+                await stream.streamSend(streamingPart.streamId, { ...baseMsg, text: displayContent }, true);
+              }
+              streamingParts.delete(part.id);
+            }
+          } else {
+            // Non-streaming parts (tools, agents, etc.) - send directly
+            const text = partToText(part);
+            if (text !== undefined && text.length > 0 && baseMsg !== undefined) {
+              await stream.send({ ...baseMsg, text });
+            }
           }
         }
       }

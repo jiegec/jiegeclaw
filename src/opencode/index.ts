@@ -245,6 +245,7 @@ export class OpencodeHandler {
       await state.client!.session.promptAsync({
         sessionID: state.sessionID!,
         parts,
+        variant: "max"
       });
     } catch (err) {
       console.warn(`[${channelId}] Failed to prompt: ${err}`);

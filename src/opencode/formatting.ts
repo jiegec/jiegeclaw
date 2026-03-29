@@ -23,9 +23,28 @@ export function partToText(part: Part): string | undefined {
     case "file": return `📎 [${part.filename ?? part.url}](${part.url ?? ""}) (${part.mime})`;
     case "snapshot": return `📸 **Snapshot:** \`${part.snapshot.slice(0, 8)}\``;
     case "compaction": return `📦 **Compaction**${part.auto ? " (auto)" : ""}`;
-    case "reasoning": return `> 💭 *${part.text}*`;
+    case "reasoning": return formatReasoning(part.text);
     case "text": return part.text;
     default: return undefined;
+  }
+}
+
+/**
+ * Format reasoning text with blockquote style.
+ */
+function formatReasoning(text: string): string {
+  return `💭 ${text}`;
+}
+
+/**
+ * Format content based on part type for streaming.
+ * This applies the same formatting as partToText but works with raw content.
+ */
+export function formatStreamingContent(content: string, partType: string): string {
+  switch (partType) {
+    case "reasoning": return formatReasoning(content);
+    case "text": return content;
+    default: return content;
   }
 }
 
