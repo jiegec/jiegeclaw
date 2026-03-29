@@ -11,8 +11,9 @@ import AiBot from "@wecom/aibot-node-sdk";
 import { generateReqId, type WsFrame, type TextMessage } from "@wecom/aibot-node-sdk";
 import type { WecomChannelConfig } from "./wecom-types.js";
 import { createRl, question } from "../readline.js";
+import { RateLimiter, RateLimitedItem } from "../utils/rate-limiter.js";
 
-interface PendingStream {
+interface StreamContext {
   streamId: string;
   content: string;
   frame: WsFrame<TextMessage>;
@@ -30,9 +31,7 @@ export class WecomChannel implements Channel {
   private wsClient?: AiBot.WSClient;
   private queuedMessages: Array<OutboundMessage>;
   private authenticated: boolean;
-  private pendingStreams: Map<string, PendingStream>;
-  private flushTimer?: ReturnType<typeof setTimeout>;
-  private lastFlushTime: number;
+  private rateLimiter: RateLimiter<StreamContext>;
 
   constructor(
     config: WecomChannelConfig,
@@ -46,8 +45,7 @@ export class WecomChannel implements Channel {
     this.onConfigUpdate = onConfigUpdate;
     this.queuedMessages = [];
     this.authenticated = false;
-    this.pendingStreams = new Map();
-    this.lastFlushTime = 0;
+    this.rateLimiter = new RateLimiter(RATE_LIMIT_MS, this.flushStreams.bind(this));
   }
 
   /**
@@ -101,7 +99,6 @@ export class WecomChannel implements Channel {
       console.log(`[${this.id}] WeCom authenticated`);
       this.authenticated = true;
       this.flush();
-      this.scheduleFlush();
     });
 
     this.wsClient!.on("message.text", (frame: WsFrame<TextMessage>) => {
@@ -146,16 +143,13 @@ export class WecomChannel implements Channel {
   async streamSend(streamId: string, msg: OutboundMessage, finish: boolean): Promise<void> {
     const frame = msg.contextToken as WsFrame<TextMessage>;
 
-    // Update or create pending stream
-    this.pendingStreams.set(streamId, {
+    // Add to rate limiter - only latest content per stream is kept
+    this.rateLimiter.add(streamId, {
       streamId,
       content: msg.text,
       frame,
       finish,
     });
-
-    // Schedule flush with rate limiting
-    this.scheduleFlush();
   }
 
   private async flush(): Promise<void> {
@@ -176,49 +170,25 @@ export class WecomChannel implements Channel {
     }
   }
 
-  private scheduleFlush(): void {
-    // Clear existing timer
-    if (this.flushTimer) {
-      clearTimeout(this.flushTimer);
-    }
-
-    const now = Date.now();
-    const timeSinceLastFlush = now - this.lastFlushTime;
-    const delay = Math.max(0, RATE_LIMIT_MS - timeSinceLastFlush);
-
-    this.flushTimer = setTimeout(() => {
-      this.flushStreams();
-    }, delay);
-  }
-
-  private async flushStreams(): Promise<void> {
-    if (!this.authenticated || this.pendingStreams.size === 0) {
-      return;
-    }
-
-    this.lastFlushTime = Date.now();
-    this.flushTimer = undefined;
-
-    // Process all pending streams - each stream only keeps the latest message
-    for (const [streamId, stream] of this.pendingStreams) {
+  /**
+   * Flush pending stream updates.
+   */
+  private async flushStreams(items: Map<string, RateLimitedItem<StreamContext>>): Promise<void> {
+    for (const [streamId, item] of items) {
+      const ctx = item.data;
       try {
-        await this.wsClient!.replyStream(stream.frame, streamId, stream.content, stream.finish);
+        await this.wsClient!.replyStream(ctx.frame, ctx.streamId, ctx.content, ctx.finish);
       } catch (err) {
         console.error(`[${this.id}] Failed to send stream ${streamId}:`, (err as Error).message);
       }
     }
-
-    this.pendingStreams.clear();
   }
 
   /** Disconnect the WeCom WebSocket client. */
   async stop(): Promise<void> {
-    // Clear any pending flush timer
-    if (this.flushTimer) {
-      clearTimeout(this.flushTimer);
-    }
-    // Flush any remaining streams/messages before stopping
-    await this.flushStreams();
+    // Force flush any pending stream updates
+    await this.rateLimiter.forceFlush();
+    // Flush any remaining non-streaming messages
     await this.flush();
     this.wsClient?.disconnect();
   }
