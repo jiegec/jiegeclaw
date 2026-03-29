@@ -12,10 +12,14 @@ import { generateReqId, type WsFrame, type TextMessage } from "@wecom/aibot-node
 import type { WecomChannelConfig } from "./wecom-types.js";
 import { createRl, question } from "../readline.js";
 
-interface QueuedMessage extends OutboundMessage {
-  streamId?: string;
-  finish?: boolean;
+interface PendingStream {
+  streamId: string;
+  content: string;
+  frame: WsFrame<TextMessage>;
+  finish: boolean;
 }
+
+const RATE_LIMIT_MS = 200; // Minimum time between stream sends
 
 export class WecomChannel implements Channel {
   readonly id: string;
@@ -24,8 +28,11 @@ export class WecomChannel implements Channel {
   private onConfigUpdate: (index: number, update: Partial<WecomChannelConfig>) => void;
   private channelIndex: number;
   private wsClient?: AiBot.WSClient;
-  private queuedMessages: Array<QueuedMessage>;
+  private queuedMessages: Array<OutboundMessage>;
   private authenticated: boolean;
+  private pendingStreams: Map<string, PendingStream>;
+  private flushTimer?: ReturnType<typeof setTimeout>;
+  private lastFlushTime: number;
 
   constructor(
     config: WecomChannelConfig,
@@ -39,6 +46,8 @@ export class WecomChannel implements Channel {
     this.onConfigUpdate = onConfigUpdate;
     this.queuedMessages = [];
     this.authenticated = false;
+    this.pendingStreams = new Map();
+    this.lastFlushTime = 0;
   }
 
   /**
@@ -92,6 +101,7 @@ export class WecomChannel implements Channel {
       console.log(`[${this.id}] WeCom authenticated`);
       this.authenticated = true;
       this.flush();
+      this.scheduleFlush();
     });
 
     this.wsClient!.on("message.text", (frame: WsFrame<TextMessage>) => {
@@ -128,15 +138,24 @@ export class WecomChannel implements Channel {
 
   /**
    * Streaming send for WeCom.
-   * Uses replyStream to update the message in real-time.
+   * Uses replyStream to update the message in real-time with rate limiting.
    * @param streamId Unique identifier for this stream (passed to replyStream)
    * @param msg The message to send
    * @param finish Whether this is the final message in the stream
    */
   async streamSend(streamId: string, msg: OutboundMessage, finish: boolean): Promise<void> {
-    // Queue messages before authentication
-    this.queuedMessages.push({ ...msg, streamId, finish });
-    await this.flush();
+    const frame = msg.contextToken as WsFrame<TextMessage>;
+
+    // Update or create pending stream
+    this.pendingStreams.set(streamId, {
+      streamId,
+      content: msg.text,
+      frame,
+      finish,
+    });
+
+    // Schedule flush with rate limiting
+    this.scheduleFlush();
   }
 
   private async flush(): Promise<void> {
@@ -144,10 +163,6 @@ export class WecomChannel implements Channel {
       const newMsg = this.queuedMessages.shift();
       if (newMsg === undefined) {
         break;
-      } else if (newMsg.streamId !== undefined) {
-        // Streaming reply with specific streamId
-        const frame = newMsg.contextToken as WsFrame<TextMessage>;
-        await this.wsClient!.replyStream(frame, newMsg.streamId, newMsg.text, newMsg.finish ?? true);
       } else if (newMsg.contextToken) {
         // Stream reply to the original message frame (non-streaming, one-shot)
         await this.wsClient!.replyStream(newMsg.contextToken, generateReqId("stream"), newMsg.text, true);
@@ -161,8 +176,50 @@ export class WecomChannel implements Channel {
     }
   }
 
+  private scheduleFlush(): void {
+    // Clear existing timer
+    if (this.flushTimer) {
+      clearTimeout(this.flushTimer);
+    }
+
+    const now = Date.now();
+    const timeSinceLastFlush = now - this.lastFlushTime;
+    const delay = Math.max(0, RATE_LIMIT_MS - timeSinceLastFlush);
+
+    this.flushTimer = setTimeout(() => {
+      this.flushStreams();
+    }, delay);
+  }
+
+  private async flushStreams(): Promise<void> {
+    if (!this.authenticated || this.pendingStreams.size === 0) {
+      return;
+    }
+
+    this.lastFlushTime = Date.now();
+    this.flushTimer = undefined;
+
+    // Process all pending streams - each stream only keeps the latest message
+    for (const [streamId, stream] of this.pendingStreams) {
+      try {
+        await this.wsClient!.replyStream(stream.frame, streamId, stream.content, stream.finish);
+      } catch (err) {
+        console.error(`[${this.id}] Failed to send stream ${streamId}:`, (err as Error).message);
+      }
+    }
+
+    this.pendingStreams.clear();
+  }
+
   /** Disconnect the WeCom WebSocket client. */
-  stop(): void {
+  async stop(): Promise<void> {
+    // Clear any pending flush timer
+    if (this.flushTimer) {
+      clearTimeout(this.flushTimer);
+    }
+    // Flush any remaining streams/messages before stopping
+    await this.flushStreams();
+    await this.flush();
     this.wsClient?.disconnect();
   }
 }

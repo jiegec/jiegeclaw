@@ -229,7 +229,7 @@ export class WeixinChannel implements Channel {
   }
 
   /** Abort the long-polling loop. */
-  stop(): void {
+  async stop(): Promise<void> {
     this.abortController?.abort();
   }
 }

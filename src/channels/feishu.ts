@@ -155,5 +155,5 @@ export class FeishuChannel implements Channel {
   }
 
   /** No-op: Feishu WSClient doesn't have a clean stop method. */
-  stop(): void { }
+  async stop(): Promise<void> { }
 }

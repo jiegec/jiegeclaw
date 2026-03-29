@@ -68,5 +68,5 @@ export interface Channel {
   streamSend(streamId: string, msg: OutboundMessage, finish: boolean): Promise<void>;
 
   /** Stop listening and clean up resources. */
-  stop(): void;
+  stop(): Promise<void>;
 }
