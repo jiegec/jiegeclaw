@@ -10,7 +10,7 @@ import { stringify, parse } from "yaml";
 
 /**
  * Convert an opencode message part to a human-readable text representation.
- * Returns undefined for parts that shouldn't be displayed (e.g., pending/running tools).
+ * Returns undefined for parts that shouldn't be displayed (e.g., step-start/step-finish).
  */
 export function partToText(part: Part): string | undefined {
   switch (part.type) {
@@ -25,6 +25,8 @@ export function partToText(part: Part): string | undefined {
     case "compaction": return `📦 **Compaction**${part.auto ? " (auto)" : ""}`;
     case "reasoning": return formatReasoning(part.text);
     case "text": return part.text;
+    case "step-start": return undefined;
+    case "step-finish": return undefined;
     default: return undefined;
   }
 }
@@ -50,14 +52,21 @@ export function formatStreamingContent(content: string, partType: string): strin
 
 /**
  * Format a tool execution part for display.
- * Pending and running tools return undefined (not yet ready to display).
- * Completed tools show the tool name, title, input, and output.
- * Errored tools show the error message.
+ * All states (pending/running/completed/error) return displayable text for streaming.
  */
-function formatToolPart(p: ToolPart): string | undefined {
+export function formatToolPart(p: ToolPart): string {
   switch (p.state.status) {
-    case "pending": return undefined;
-    case "running": return undefined;
+    case "pending": {
+      const inputStr = stringify(p.state.input).trim();
+      const truncatedInput = inputStr.length > 500 ? inputStr.slice(0, 500) + "..." : inputStr;
+      return `⏳ **[${p.tool}]** Pending...\n\`\`\`\n${truncatedInput}\n\`\`\``;
+    }
+    case "running": {
+      const title = p.state.title ?? "Running...";
+      const inputStr = stringify(p.state.input).trim();
+      const truncatedInput = inputStr.length > 500 ? inputStr.slice(0, 500) + "..." : inputStr;
+      return `🔄 **[${p.tool}]** ${title}\n\`\`\`\n${truncatedInput}\n\`\`\``;
+    }
     case "completed": {
       const out = p.state.output;
       // Special formatting for todowrite tool: show a checklist instead of raw YAML

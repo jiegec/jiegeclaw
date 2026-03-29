@@ -9,9 +9,9 @@
  * Automatically reconnects on errors with a 1-second delay.
  */
 
-import type { Event, Message, TextPart } from "@opencode-ai/sdk/v2";
+import type { Event, Message, TextPart, ToolPart } from "@opencode-ai/sdk/v2";
 import type { ChannelState, StreamHandler } from "./types.js";
-import { partToText, formatStreamingContent } from "./formatting.js";
+import { partToText, formatStreamingContent, formatToolPart } from "./formatting.js";
 import { handlePermission, handleQuestion } from "./handlers.js";
 import { createBaseMsg } from "./utils.js";
 
@@ -21,6 +21,8 @@ interface StreamingPart {
   messageId: string;
   partId: string;
   partType: string;
+  // For tool parts, track the current state status
+  toolState?: string;
 }
 
 /**
@@ -125,7 +127,7 @@ export async function runEventLoop(
           const role = messages.get(part.messageID)?.role;
           if (role !== "assistant") continue;
 
-          // Only process text and reasoning parts for streaming display
+          // Process text and reasoning parts for streaming display
           if (part.type === "text" || part.type === "reasoning") {
             // Check if we have a streaming part for this (tracked by partID)
             const streamingPart = streamingParts.get(part.id);
@@ -158,8 +160,43 @@ export async function runEventLoop(
               }
               streamingParts.delete(part.id);
             }
+          } else if (part.type === "tool") {
+            // Tool parts also support streaming (pending -> running -> completed/error)
+            const toolPart = part as ToolPart;
+            const currentState = toolPart.state.status;
+            const isComplete = currentState === "completed" || currentState === "error";
+
+            let streamingPart = streamingParts.get(part.id);
+
+            if (!streamingPart) {
+              // First time seeing this tool - create streamingPart
+              streamingPart = {
+                streamId: crypto.randomUUID(),
+                content: formatToolPart(toolPart),
+                messageId: part.messageID,
+                partId: part.id,
+                partType: part.type,
+                toolState: currentState,
+              };
+              streamingParts.set(part.id, streamingPart);
+            } else {
+              // Tool state changed - update content and send update
+              streamingPart.content = formatToolPart(toolPart);
+              streamingPart.toolState = currentState;
+
+            }
+
+            // Send update
+            if (baseMsg !== undefined) {
+              await stream.streamSend(streamingPart.streamId, { ...baseMsg, text: streamingPart.content }, isComplete);
+            }
+
+            // If complete, clean up
+            if (isComplete) {
+              streamingParts.delete(part.id);
+            }
           } else {
-            // Non-streaming parts (tools, agents, etc.) - send directly
+            // Other parts (agents, subtasks, etc.) - send directly
             const text = partToText(part);
             if (text !== undefined && text.length > 0 && baseMsg !== undefined) {
               await stream.send({ ...baseMsg, text });
