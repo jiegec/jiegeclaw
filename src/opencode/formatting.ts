@@ -18,7 +18,7 @@ export function partToText(part: Part): string | undefined {
     case "agent": return `🤖 **Agent:** ${part.name}`;
     case "subtask": return `📋 **Subtask** \`${part.agent}\`: ${part.description}`;
     case "retry":
-      return `🔁 **Retry** #${part.attempt}: ${part.error.data.message ?? "unknown error"}`;
+      return `🔁 **Retry** #${part.attempt}: ${part.error.data.message}`;
     case "patch": return `📝 **Patch** \`${part.hash}\`: \`${part.files.join("`, `")}\``;
     case "file": return `📎 [${part.filename ?? part.url}](${part.url ?? ""}) (${part.mime})`;
     case "snapshot": return `📸 **Snapshot:** \`${part.snapshot.slice(0, 8)}\``;
@@ -48,10 +48,10 @@ function formatToolPart(p: ToolPart): string | undefined {
           return formatted;
         }
       }
-      const truncatedOut = out.length > 200;
       const inputStr = stringify(p.state.input).trim();
       const truncatedInput = inputStr.length > 500 ? inputStr.slice(0, 500) + "..." : inputStr;
-      const outPreview = out.trim().slice(0, 200);
+      const truncatedOut = out.length > 500;
+      const outPreview = out.trim().slice(0, 500);
       return `✅ **[${p.tool}]** ${p.state.title}\n\`\`\`\n${truncatedInput}\n\`\`\`\n**Output:**\n\`\`\`\n${outPreview}${truncatedOut ? "..." : ""}\n\`\`\``;
     }
     case "error": return `❌ **Error** [${p.tool}]: ${p.state.error}`;

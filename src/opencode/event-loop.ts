@@ -40,8 +40,7 @@ export async function runEventLoop(
       for await (const event of result.stream) {
         if (abortController!.signal.aborted) break;
         const baseMsg = createBaseMsg(state);
-
-        const e = event as Event;
+        const e = event;
 
         // Track subagent sessions spawned by this channel's main session
         if (e.type === "session.updated") {
@@ -57,7 +56,7 @@ export async function runEventLoop(
           }
         } else if (e.type === "session.status" && e.properties.sessionID !== sessionID && state.childSessionIDs!.has(e.properties.sessionID)) {
           // Notify when a subagent finishes its work
-          const status = (e.properties as { status: { type: string } }).status;
+          const status = e.properties.status;
           if (status.type === "idle" && baseMsg !== undefined) {
             await stream.send({ ...baseMsg, text: `✅ **Subagent finished**` });
           }
@@ -77,7 +76,6 @@ export async function runEventLoop(
           if (baseMsg !== undefined) {
             await stream.send({ ...baseMsg, text: `Error: ${errMsg}` });
           }
-          state.activeMsg = undefined;
           console.error(`[${channelId}] Session error: ${errMsg}`);
         } else if (e.type === "permission.asked" && isOwnEvent(e.properties.sessionID)) {
           // Handle permission requests (ask user to approve/deny tool execution)
