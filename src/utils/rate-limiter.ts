@@ -61,18 +61,23 @@ export class RateLimiter<T> {
     this.isFlushing = true;
     this.lastFlushTime = Date.now();
 
-    // Create a copy of pending items and clear the map
-    while (this.pendingItems.size > 0) {
-      const itemsToFlush = new Map(this.pendingItems);
-      this.pendingItems.clear();
+    // Take all current items and clear the map BEFORE await
+    // This prevents race condition where new items added during flush are lost
+    const itemsToFlush = new Map(this.pendingItems);
+    this.pendingItems.clear();
 
-      try {
-        await this.flushCallback(itemsToFlush);
-      } catch (err) {
-        logger.error(`RateLimiter flush failed: ${(err as Error).message}`);
+    try {
+      await this.flushCallback(itemsToFlush);
+    } catch (err) {
+      logger.error(`RateLimiter flush failed: ${(err as Error).message}`);
+    } finally {
+      this.isFlushing = false;
+
+      // If new items were added during the flush, schedule another flush
+      if (this.pendingItems.size > 0) {
+        this.scheduleFlush();
       }
     }
-    this.isFlushing = false;
   }
 
   /**
