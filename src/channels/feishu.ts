@@ -277,7 +277,7 @@ export class FeishuChannel implements Channel {
         streaming_mode: true,
         streaming_config: {
           print_frequency_ms: {
-            default: 100
+            default: 50
           },
           print_step: {
             default: 5
