@@ -141,7 +141,6 @@ export class FeishuChannel implements Channel {
             }
             // Image messages have no text content, use empty string
             onMessage({
-              id: message.message_id ?? String(Date.now()),
               from: message.chat_id ?? "",
               text: "",
               contextToken: message.message_id ? { channel: "feishu", messageId: message.message_id } : undefined,
@@ -175,7 +174,6 @@ export class FeishuChannel implements Channel {
           if (!text.trim() && images.length === 0) return;
 
           onMessage({
-            id: message.message_id ?? String(Date.now()),
             from: message.chat_id ?? "",
             text,
             contextToken: message.message_id ? { channel: "feishu", messageId: message.message_id } : undefined,

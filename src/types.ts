@@ -65,8 +65,6 @@ export type ContextToken = FeishuContextToken | WecomContextToken | WeixinContex
 
 /** A message received from a user via a messaging channel. */
 export interface InboundMessage {
-  /** Unique message identifier from the channel platform. */
-  id: string;
   /** Sender identifier (user ID or chat ID, depending on the channel). */
   from: string;
   /** The text content of the message. */

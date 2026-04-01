@@ -47,15 +47,16 @@ function saveSyncBuf(buf: string): void {
  */
 function extractText(itemList?: MessageItem[]): string {
   if (!itemList?.length) return "";
+  let res = "";
   for (const item of itemList) {
-    if (item.type === MessageItemType.TEXT && item.text_item?.text != undefined) {
-      return String(item.text_item?.text);
+    if (item.type === MessageItemType.TEXT && item.text_item?.text !== undefined) {
+      res += item.text_item.text + "\n";
     }
-    if (item.type === MessageItemType.VOICE && item.voice_item?.text) {
-      return item.voice_item.text;
+    if (item.type === MessageItemType.VOICE && item.voice_item?.text !== undefined) {
+      res += item.voice_item.text + "\n";
     }
   }
-  return "";
+  return res.trim();
 }
 
 /**
@@ -144,13 +145,14 @@ export class WeixinChannel implements Channel {
 
     logger.info(`Listening for Weixin messages (account: ${this.accountId})...`);
 
+    let timeoutMs = 35_000;
     while (!this.abortController.signal.aborted) {
       try {
         const resp = await getUpdates({
           baseUrl: DEFAULT_BASE_URL,
           token: this.token,
           get_updates_buf: getUpdatesBuf,
-          timeoutMs: 35_000,
+          timeoutMs: timeoutMs,
         });
 
         if (resp.ret !== undefined && resp.ret !== 0) {
@@ -165,6 +167,11 @@ export class WeixinChannel implements Channel {
           getUpdatesBuf = resp.get_updates_buf;
         }
 
+        // Respect long polling timeout from server
+        if (resp.longpolling_timeout_ms !== undefined) {
+          timeoutMs = resp.longpolling_timeout_ms;
+        }
+
         // Process each new message
         for (const raw of resp.msgs ?? []) {
           if (!isUserMessage(raw)) continue;
@@ -173,7 +180,7 @@ export class WeixinChannel implements Channel {
           const imageItems = extractImages(raw.item_list);
 
           // Skip if no text and no images
-          if (!text.trim() && imageItems.length === 0) continue;
+          if (text.trim().length === 0 && imageItems.length === 0) continue;
 
           // Download all images
           const images: ImageAttachment[] = [];
@@ -185,7 +192,6 @@ export class WeixinChannel implements Channel {
           }
 
           onMessage({
-            id: String(raw.message_id ?? Date.now()),
             from: raw.from_user_id ?? "",
             text,
             contextToken: raw.context_token ? { channel: "weixin", contextToken: raw.context_token } : undefined,

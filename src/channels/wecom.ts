@@ -99,7 +99,6 @@ export class WecomChannel implements Channel {
       const contextToken: WecomContextToken = { channel: "wecom", frame };
 
       onMessage({
-        id: body.msgid,
         from,
         text: body.text.content,
         contextToken,
@@ -125,7 +124,6 @@ export class WecomChannel implements Channel {
       const contextToken: WecomContextToken = { channel: "wecom", frame };
 
       onMessage({
-        id: body.msgid,
         from,
         text: "",
         contextToken,
@@ -162,7 +160,6 @@ export class WecomChannel implements Channel {
       const contextToken: WecomContextToken = { channel: "wecom", frame };
 
       onMessage({
-        id: body.msgid,
         from,
         text,
         contextToken,
