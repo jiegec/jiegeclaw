@@ -10,7 +10,7 @@
 
 import type { Channel, InboundMessage, OutboundMessage, ImageAttachment } from "../types.js";
 import { startWeixinLoginWithQr, waitForWeixinLogin } from "@tencent-weixin/openclaw-weixin/src/auth/login-qr.js";
-import { getUpdates, sendMessage as sendMessageApi } from "@tencent-weixin/openclaw-weixin/src/api/api.js";
+import { getUpdates, sendMessage as sendMessageApi, sendTyping, getConfig } from "@tencent-weixin/openclaw-weixin/src/api/api.js";
 import { MessageItemType, MessageType, MessageState } from "@tencent-weixin/openclaw-weixin/src/api/types.js";
 import type { WeixinMessage, MessageItem, ImageItem } from "@tencent-weixin/openclaw-weixin/src/api/types.js";
 import { DEFAULT_BASE_URL } from "@tencent-weixin/openclaw-weixin/src/auth/accounts.js";
@@ -77,6 +77,8 @@ export class WeixinChannel implements Channel {
   private token: string;
   private accountId: string;
   private abortController?: AbortController;
+  /** Cache of typing tickets per user (userId -> typingTicket) */
+  private typingTickets: Map<string, string> = new Map();
 
   constructor(config: WeixinChannelConfig) {
     this.id = config.accountId;
@@ -229,11 +231,44 @@ export class WeixinChannel implements Channel {
 
   /**
    * Streaming send for Weixin.
-   * Weixin doesn't support streaming, so we only send when finish=true.
+   * Weixin doesn't support true streaming, but we can send a "typing" indicator
+   * while generating content, then send the final message when finish=true.
    */
   async streamSend(streamId: string, msg: OutboundMessage, finish: boolean): Promise<void> {
     if (finish) {
       await this.send(msg);
+    } else {
+      // Get or refresh typing ticket for this user
+      let typingTicket = this.typingTickets.get(msg.to);
+      if (!typingTicket) {
+        try {
+          const config = await getConfig({
+            baseUrl: DEFAULT_BASE_URL,
+            token: this.token,
+            ilinkUserId: msg.to,
+            contextToken: msg.contextToken?.channel === "weixin" ? msg.contextToken.contextToken : undefined,
+          });
+          if (config.typing_ticket) {
+            typingTicket = config.typing_ticket;
+            this.typingTickets.set(msg.to, typingTicket);
+          }
+        } catch (err) {
+          logger.warn(`[${this.id}] Failed to get typing ticket: ${(err as Error).message}`);
+        }
+      }
+
+      // Send typing indicator to show that the bot is generating a response
+      if (typingTicket) {
+        await sendTyping({
+          baseUrl: DEFAULT_BASE_URL,
+          token: this.token,
+          body: {
+            ilink_user_id: msg.to,
+            typing_ticket: typingTicket,
+            status: 1, // TYPING
+          },
+        });
+      }
     }
   }
 
