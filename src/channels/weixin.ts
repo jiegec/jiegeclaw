@@ -8,18 +8,20 @@
  * across restarts.
  */
 
-import type { Channel, InboundMessage, OutboundMessage, WeixinContextToken } from "../types.js";
+import type { Channel, InboundMessage, OutboundMessage, ImageAttachment } from "../types.js";
 import { startWeixinLoginWithQr, waitForWeixinLogin } from "@tencent-weixin/openclaw-weixin/src/auth/login-qr.js";
 import { getUpdates, sendMessage as sendMessageApi } from "@tencent-weixin/openclaw-weixin/src/api/api.js";
 import { MessageItemType, MessageType, MessageState } from "@tencent-weixin/openclaw-weixin/src/api/types.js";
-import type { WeixinMessage, MessageItem } from "@tencent-weixin/openclaw-weixin/src/api/types.js";
+import type { WeixinMessage, MessageItem, ImageItem } from "@tencent-weixin/openclaw-weixin/src/api/types.js";
 import { DEFAULT_BASE_URL } from "@tencent-weixin/openclaw-weixin/src/auth/accounts.js";
+import { downloadAndDecryptBuffer } from "@tencent-weixin/openclaw-weixin/src/cdn/pic-decrypt.js";
 import type { WeixinChannelConfig } from "./weixin-types.js";
 import qrcodeTerminal from "qrcode-terminal";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import logger from "../utils/logger.js";
+import { bufferToImageAttachment } from "../utils/image.js";
 
 const CONFIG_DIR = path.join(os.homedir(), ".jiegeclaw");
 const SYNC_BUF_PATH = path.join(CONFIG_DIR, "weixin-sync-buf.txt");
@@ -54,6 +56,20 @@ function extractText(itemList?: MessageItem[]): string {
     }
   }
   return "";
+}
+
+/**
+ * Extract image items from a Weixin message's item list.
+ */
+function extractImages(itemList?: MessageItem[]): ImageItem[] {
+  if (!itemList?.length) return [];
+  const images: ImageItem[] = [];
+  for (const item of itemList) {
+    if (item.type === MessageItemType.IMAGE && item.image_item) {
+      images.push(item.image_item);
+    }
+  }
+  return images;
 }
 
 export class WeixinChannel implements Channel {
@@ -173,13 +189,26 @@ export class WeixinChannel implements Channel {
           if (!isUserMessage(raw)) continue;
 
           const text = extractText(raw.item_list);
-          if (!text.trim()) continue;
+          const imageItems = extractImages(raw.item_list);
+
+          // Skip if no text and no images
+          if (!text.trim() && imageItems.length === 0) continue;
+
+          // Download all images
+          const images: ImageAttachment[] = [];
+          for (const imageItem of imageItems) {
+            const image = await this.downloadImage(imageItem);
+            if (image) {
+              images.push(image);
+            }
+          }
 
           onMessage({
             id: String(raw.message_id ?? Date.now()),
             from: raw.from_user_id ?? "",
             text,
             contextToken: raw.context_token ? { channel: "weixin", contextToken: raw.context_token } : undefined,
+            images: images.length > 0 ? images : undefined,
           });
         }
       } catch (err) {
@@ -226,6 +255,33 @@ export class WeixinChannel implements Channel {
   async streamSend(streamId: string, msg: OutboundMessage, finish: boolean): Promise<void> {
     if (finish) {
       await this.send(msg);
+    }
+  }
+
+  /**
+   * Download and decrypt an image from Weixin CDN.
+   * Returns the image as an ImageAttachment or null if download fails.
+   */
+  private async downloadImage(imageItem: ImageItem): Promise<ImageAttachment | null> {
+    try {
+      const media = imageItem.media;
+      if (!media?.full_url || !media.aes_key) {
+        logger.warn(`[${this.id}] Image item missing required fields: full_url=${!!media?.full_url}, aes_key=${!!media?.aes_key}`);
+        return null;
+      }
+
+      const buffer = await downloadAndDecryptBuffer(
+        media.encrypt_query_param ?? "",
+        media.aes_key,
+        "", // cdnBaseUrl not needed when full_url is provided
+        `[${this.id}]`,
+        media.full_url
+      );
+
+      return await bufferToImageAttachment(buffer, `weixin_image_${Date.now()}`);
+    } catch (err) {
+      logger.error(`[${this.id}] Failed to download image: ${(err as Error).message}`);
+      return null;
     }
   }
 
