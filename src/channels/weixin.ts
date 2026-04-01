@@ -15,6 +15,7 @@ import { MessageItemType, MessageType, MessageState } from "@tencent-weixin/open
 import type { WeixinMessage, MessageItem, ImageItem } from "@tencent-weixin/openclaw-weixin/src/api/types.js";
 import { DEFAULT_BASE_URL } from "@tencent-weixin/openclaw-weixin/src/auth/accounts.js";
 import { downloadAndDecryptBuffer } from "@tencent-weixin/openclaw-weixin/src/cdn/pic-decrypt.js";
+import { markdownToPlainText } from "@tencent-weixin/openclaw-weixin/src/messaging/send.js";
 import type { WeixinChannelConfig } from "./weixin-types.js";
 import qrcodeTerminal from "qrcode-terminal";
 import fs from "node:fs";
@@ -209,12 +210,15 @@ export class WeixinChannel implements Channel {
   /**
    * Send a message to a Weixin user.
    * Messages are sent as BOT type with FINISH state (no streaming).
+   * Markdown is converted to plain text since Weixin doesn't support markdown.
    * The contextToken is forwarded for in-thread reply context.
    */
   async send(msg: OutboundMessage): Promise<void> {
     const clientId = crypto.randomUUID();
-    const itemList = msg.text
-      ? [{ type: MessageItemType.TEXT, text_item: { text: msg.text } }]
+    // Convert markdown to plain text for Weixin
+    const plainText = markdownToPlainText(msg.text);
+    const itemList = plainText
+      ? [{ type: MessageItemType.TEXT, text_item: { text: plainText } }]
       : [];
 
     await sendMessageApi({
