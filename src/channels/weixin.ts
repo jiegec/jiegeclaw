@@ -106,7 +106,7 @@ export class WeixinChannel implements Channel {
     logger.info("\nScan the QR code with Weixin:\n");
     await new Promise<void>((resolve) => {
       qrcodeTerminal.generate(startResult.qrcodeUrl!, { small: true }, (qr: string) => {
-        logger.info(qr);
+        logger.info(`\n${qr}`);
         logger.info("\nOr open this URL to scan:");
         logger.info(startResult.qrcodeUrl!);
         resolve();
