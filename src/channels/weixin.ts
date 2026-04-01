@@ -36,7 +36,7 @@ function loadSyncBuf(): string {
 /** Persist the sync buffer to disk so we can resume polling after restarts. */
 function saveSyncBuf(buf: string): void {
   fs.mkdirSync(CONFIG_DIR, { recursive: true });
-  fs.writeFileSync(SYNC_BUF_PATH, buf, "utf-8");
+  fs.writeFileSync(SYNC_BUF_PATH, buf, { mode: 0o600, encoding: "utf-8" });
 }
 
 /**
