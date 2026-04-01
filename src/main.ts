@@ -10,7 +10,8 @@
  */
 
 import { spawn } from "node:child_process";
-import { loadConfig, saveConfig, makeConfigUpdater, createChannel } from "./config.js";
+import { loadConfig, saveConfig, createChannel } from "./config.js";
+import { registry } from "./channels/registry.js";
 import type { ChannelConfig } from "./config.js";
 import { stringify } from "yaml";
 import logger from "./utils/logger.js";
@@ -105,24 +106,22 @@ async function setupChannels(): Promise<void> {
   const type = process.argv[4];
 
   if (action === "add" && type) {
-    // Create a temporary channel config and run its onboard flow
-    const base: ChannelConfig = { type } as ChannelConfig;
-    const tempConfig = [...config.channels, base];
-    const updater = makeConfigUpdater(tempConfig as ChannelConfig[]);
-    const index = tempConfig.length - 1;
-    const channel = createChannel(base, index, updater);
+    const onboard = registry.getOnboard(type);
+    if (!onboard) {
+      logger.error(`Unknown channel type: ${type}`);
+      logger.error(`Supported types: ${registry.getTypes().join(", ")}`);
+      process.exit(1);
+    }
 
     try {
-      await channel.onboard();
+      const newConfig = await onboard();
+      config.channels.push(newConfig);
+      saveConfig(config);
+      logger.info(`${type} channel added successfully!`);
     } catch (err) {
       logger.error(`Failed to setup ${type}: ${(err as Error).message}`);
       process.exit(1);
     }
-
-    // Save the updated config (with credentials filled in by onboard)
-    const appConfig = loadConfig();
-    appConfig.channels = tempConfig;
-    saveConfig(appConfig);
     return;
   }
 

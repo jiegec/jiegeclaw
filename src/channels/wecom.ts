@@ -26,40 +26,27 @@ const RATE_LIMIT_MS = 200; // Minimum time between stream sends
 
 export class WecomChannel implements Channel {
   readonly id: string;
-  private botId?: string;
-  private secret?: string;
-  private onConfigUpdate: (index: number, update: Partial<WecomChannelConfig>) => void;
-  private channelIndex: number;
+  private botId: string;
+  private secret: string;
   private wsClient?: AiBot.WSClient;
   private queuedMessages: Array<OutboundMessage>;
   private authenticated: boolean;
   private rateLimiter: RateLimiter<StreamContext>;
 
-  constructor(
-    config: WecomChannelConfig,
-    index: number,
-    onConfigUpdate: (index: number, update: Partial<WecomChannelConfig>) => void,
-  ) {
-    this.channelIndex = index;
-    this.id = config.botId ?? `wecom-${index}`;
+  constructor(config: WecomChannelConfig) {
+    this.id = config.botId;
     this.botId = config.botId;
     this.secret = config.secret;
-    this.onConfigUpdate = onConfigUpdate;
     this.queuedMessages = [];
     this.authenticated = false;
     this.rateLimiter = new RateLimiter(RATE_LIMIT_MS, this.flushStreams.bind(this));
   }
 
   /**
-   * Interactive setup: prompt for Bot ID and Secret if not already configured.
-   * Credentials are saved to config via the onConfigUpdate callback.
+   * Interactive setup: prompt for Bot ID and Secret.
+   * Returns the channel config with credentials.
    */
-  async onboard(): Promise<void> {
-    if (this.botId && this.secret) {
-      logger.info(`WeCom already configured. Bot: ${this.botId}`);
-      return;
-    }
-
+  static async onboard(): Promise<WecomChannelConfig> {
     const rl = createRl();
     const botId = await question(rl, "WeCom Bot ID: ");
     const secret = await question(rl, "WeCom Bot Secret: ");
@@ -69,21 +56,20 @@ export class WecomChannel implements Channel {
       throw new Error("Bot ID and Secret are required");
     }
 
-    this.botId = botId;
-    this.secret = secret;
+    logger.info("WeCom configured successfully!");
 
-    this.onConfigUpdate(this.channelIndex, {
-      botId: this.botId,
-      secret: this.secret,
-    });
-    logger.info("\nWeCom connected successfully!");
+    return {
+      type: "wecom",
+      botId,
+      secret,
+    };
   }
 
   ensureClient() {
     if (this.wsClient === undefined) {
       this.wsClient = new AiBot.WSClient({
-        botId: this.botId!,
-        secret: this.secret!,
+        botId: this.botId,
+        secret: this.secret,
       });
       this.wsClient.connect();
     }

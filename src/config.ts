@@ -146,19 +146,6 @@ export function updateChannelSession(channelId: string, directory: string, sessi
   saveSessions(sessions);
 }
 
-export function makeConfigUpdater(config: ChannelConfig[]): (index: number, update: Record<string, unknown>) => void {
-  return (index, update) => {
-    config[index] = { ...config[index], ...update };
-    const appConfig = loadConfig();
-    appConfig.channels = config;
-    saveConfig(appConfig);
-  };
-}
-
-export function createChannel(
-  cfg: ChannelConfig,
-  index: number,
-  onConfigUpdate: (index: number, update: Record<string, unknown>) => void,
-): Channel {
-  return registry.create(cfg, index, onConfigUpdate);
+export function createChannel(cfg: ChannelConfig): Channel {
+  return registry.create(cfg);
 }

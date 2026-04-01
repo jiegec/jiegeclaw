@@ -104,12 +104,6 @@ export interface Channel {
   readonly id: string;
 
   /**
-   * Interactive setup flow for first-time configuration.
-   * Prompts the user for required credentials and saves them to config.
-   */
-  onboard(): Promise<void>;
-
-  /**
    * Start listening for incoming messages.
    * Calls the `onMessage` callback for each incoming message.
    * This should block until the channel is stopped.

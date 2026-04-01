@@ -9,8 +9,7 @@
 
 import type { Channel, InboundMessage } from "../types.js";
 import { OpencodeHandler } from "../opencode/index.js";
-import { loadConfig, makeConfigUpdater, createChannel } from "../config.js";
-import type { ChannelConfig } from "../config.js";
+import { loadConfig, createChannel } from "../config.js";
 import { getCommand, hasCommand } from "./commands.js";
 import { PendingReplyManager, ChannelStreamHandler } from "./stream-handler.js";
 import logger from "../utils/logger.js";
@@ -126,12 +125,11 @@ export async function runServer(): Promise<void> {
     process.exit(1);
   }
 
-  const updater = makeConfigUpdater(config.channels as ChannelConfig[]);
   const opencode = new OpencodeHandler();
   const server = new Server(opencode);
 
-  for (let i = 0; i < config.channels.length; i++) {
-    const channel = createChannel(config.channels[i], i, updater);
+  for (const channelConfig of config.channels) {
+    const channel = createChannel(channelConfig);
     server.addChannel(channel);
   }
 

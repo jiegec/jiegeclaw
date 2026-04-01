@@ -11,25 +11,35 @@ import type { ChannelConfig } from "../config.js";
 /**
  * Factory function type for creating channel instances.
  */
-export type ChannelFactory = (
-  config: ChannelConfig,
-  index: number,
-  onConfigUpdate: (index: number, update: Record<string, unknown>) => void,
-) => Channel;
+export type ChannelFactory = (config: ChannelConfig) => Channel;
 
 /**
- * Registry for channel type factories.
+ * Onboard function type for interactive channel setup.
+ * Returns complete channel config with credentials obtained during setup.
+ */
+export type OnboardFunction = () => Promise<ChannelConfig>;
+
+/**
+ * Channel registration containing factory and onboard function.
+ */
+export interface ChannelRegistration {
+  factory: ChannelFactory;
+  onboard: OnboardFunction;
+}
+
+/**
+ * Registry for channel registrations.
  */
 class ChannelRegistry {
-  private factories = new Map<string, ChannelFactory>();
+  private channels = new Map<string, ChannelRegistration>();
 
   /**
-   * Register a channel factory for a given type.
+   * Register a channel for a given type.
    * @param type - The channel type identifier (e.g., 'weixin', 'feishu', 'wecom')
-   * @param factory - Factory function that creates channel instances
+   * @param registration - Channel registration with factory and onboard
    */
-  register(type: string, factory: ChannelFactory): void {
-    this.factories.set(type, factory);
+  register(type: string, registration: ChannelRegistration): void {
+    this.channels.set(type, registration);
   }
 
   /**
@@ -38,27 +48,35 @@ class ChannelRegistry {
    * @returns true if the type is registered
    */
   has(type: string): boolean {
-    return this.factories.has(type);
+    return this.channels.has(type);
   }
 
   /**
    * Create a channel instance for the given configuration.
    * @param config - Channel configuration
-   * @param index - Index in the config array
-   * @param onConfigUpdate - Callback for config updates
    * @returns Channel instance
    * @throws Error if channel type is not registered
    */
-  create(
-    config: ChannelConfig,
-    index: number,
-    onConfigUpdate: (index: number, update: Record<string, unknown>) => void,
-  ): Channel {
-    const factory = this.factories.get(config.type);
-    if (!factory) {
+  create(config: ChannelConfig): Channel {
+    const reg = this.channels.get(config.type);
+    if (!reg) {
       throw new Error(`Unknown channel type: ${config.type}`);
     }
-    return factory(config, index, onConfigUpdate);
+    return reg.factory(config);
+  }
+
+  /**
+   * Get the onboard function for a channel type.
+   * @param type - The channel type
+   * @returns Onboard function
+   * @throws Error if channel type is not registered
+   */
+  getOnboard(type: string): OnboardFunction {
+    const reg = this.channels.get(type);
+    if (!reg) {
+      throw new Error(`Unknown channel type: ${type}`);
+    }
+    return reg.onboard;
   }
 
   /**
@@ -66,7 +84,7 @@ class ChannelRegistry {
    * @returns Array of registered type names
    */
   getTypes(): string[] {
-    return Array.from(this.factories.keys());
+    return Array.from(this.channels.keys());
   }
 }
 

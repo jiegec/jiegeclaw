@@ -74,41 +74,22 @@ function extractImages(itemList?: MessageItem[]): ImageItem[] {
 
 export class WeixinChannel implements Channel {
   readonly id: string;
-  private onConfigUpdate: (index: number, update: Partial<WeixinChannelConfig>) => void;
-  private channelIndex: number;
-
-  private token?;
-  private accountId?;
-  private userId?;
+  private token: string;
+  private accountId: string;
   private abortController?: AbortController;
 
-  constructor(
-    config: WeixinChannelConfig,
-    index: number,
-    onConfigUpdate: (index: number, update: Partial<WeixinChannelConfig>) => void,
-  ) {
-    this.channelIndex = index;
-    this.onConfigUpdate = onConfigUpdate;
-    this.id = config.accountId ?? `weixin-${index}`;
-
-    if (config.token) {
-      this.token = config.token;
-      this.accountId = config.accountId;
-      this.userId = config.userId;
-    }
+  constructor(config: WeixinChannelConfig) {
+    this.id = config.accountId;
+    this.token = config.token;
+    this.accountId = config.accountId;
   }
 
   /**
-   * Interactive setup: perform QR code login if no token is stored.
+   * Interactive setup: perform QR code login.
    * Displays a QR code in the terminal and waits for the user to scan it.
-   * The resulting token, accountId, and userId are saved to config.
+   * Returns the channel config with token, accountId, and userId.
    */
-  async onboard(): Promise<void> {
-    if (this.token) {
-      logger.info(`Weixin already configured. Account: ${this.accountId}`);
-      return;
-    }
-
+  static async onboard(): Promise<WeixinChannelConfig> {
     logger.info("Starting Weixin QR login...");
     const startResult = await startWeixinLoginWithQr({
       apiBaseUrl: DEFAULT_BASE_URL,
@@ -119,37 +100,35 @@ export class WeixinChannel implements Channel {
     }
 
     // Display the QR code in the terminal
-    logger.info("\nScan the QR code with Weixin:\n");
+    logger.info("Scan the QR code with Weixin:\n");
     await new Promise<void>((resolve) => {
       qrcodeTerminal.generate(startResult.qrcodeUrl!, { small: true }, (qr: string) => {
         logger.info(`\n${qr}`);
-        logger.info("\nOr open this URL to scan:");
+        logger.info("Or open this URL to scan:");
         logger.info(startResult.qrcodeUrl!);
         resolve();
       });
     });
 
     // Wait for the user to scan the QR code and approve the login
-    logger.info("\nWaiting for scan result...");
+    logger.info("Waiting for scan result...");
     const waitResult = await waitForWeixinLogin({
       sessionKey: startResult.sessionKey,
       apiBaseUrl: DEFAULT_BASE_URL,
     });
 
-    if (!waitResult.connected || !waitResult.botToken || !waitResult.accountId) {
+    if (!waitResult.connected || !waitResult.botToken || !waitResult.accountId || !waitResult.userId) {
       throw new Error(`Login failed: ${waitResult.message}`);
     }
 
-    this.token = waitResult.botToken;
-    this.accountId = waitResult.accountId;
-    this.userId = waitResult.userId;
+    logger.info("Weixin connected successfully!");
 
-    this.onConfigUpdate(this.channelIndex, {
-      token: this.token,
-      accountId: this.accountId,
-      userId: this.userId,
-    });
-    logger.info("\nWeixin connected successfully!");
+    return {
+      type: "weixin",
+      token: waitResult.botToken,
+      accountId: waitResult.accountId,
+      userId: waitResult.userId,
+    };
   }
 
   /**

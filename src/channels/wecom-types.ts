@@ -2,7 +2,7 @@
 export interface WecomChannelConfig {
   type: "wecom";
   /** WeCom bot ID. */
-  botId?: string;
+  botId: string;
   /** WeCom bot secret. */
-  secret?: string;
+  secret: string;
 }

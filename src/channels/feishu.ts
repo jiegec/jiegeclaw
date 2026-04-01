@@ -26,39 +26,26 @@ const STREAMING_ELEMENT_ID = "streaming_content";
 
 export class FeishuChannel implements Channel {
   readonly id: string;
-  private appId = "";
-  private appSecret = "";
+  private appId: string;
+  private appSecret: string;
   /** Lazily initialized REST client for sending messages. */
   private client?: Lark.Client;
-  private onConfigUpdate: (index: number, update: Partial<FeishuChannelConfig>) => void;
-  private channelIndex: number;
   private rateLimiter: RateLimiter<StreamContext>;
   /** Map of streamId to card info */
   private streamContexts: Map<string, StreamContext> = new Map();
 
-  constructor(
-    config: FeishuChannelConfig,
-    index: number,
-    onConfigUpdate: (index: number, update: Partial<FeishuChannelConfig>) => void,
-  ) {
-    this.channelIndex = index;
-    this.id = config.appId ?? `feishu-${index}`;
-    this.appId = config.appId ?? "";
-    this.appSecret = config.appSecret ?? "";
-    this.onConfigUpdate = onConfigUpdate;
+  constructor(config: FeishuChannelConfig) {
+    this.id = config.appId;
+    this.appId = config.appId;
+    this.appSecret = config.appSecret;
     this.rateLimiter = new RateLimiter(RATE_LIMIT_MS, this.flushStreams.bind(this));
   }
 
   /**
-   * Interactive setup: prompt for App ID and App Secret if not already configured.
-   * Credentials are saved to config via the onConfigUpdate callback.
+   * Interactive setup: prompt for App ID and App Secret.
+   * Returns the channel config with credentials.
    */
-  async onboard(): Promise<void> {
-    if (this.appId && this.appSecret) {
-      logger.info(`Feishu already configured. App: ${this.appId}`);
-      return;
-    }
-
+  static async onboard(): Promise<FeishuChannelConfig> {
     const rl = createRl();
     const appId = await question(rl, "Feishu App ID: ");
     const appSecret = await question(rl, "Feishu App Secret: ");
@@ -68,14 +55,13 @@ export class FeishuChannel implements Channel {
       throw new Error("App ID and App Secret are required");
     }
 
-    this.appId = appId;
-    this.appSecret = appSecret;
+    logger.info("\nFeishu configured successfully!");
 
-    this.onConfigUpdate(this.channelIndex, {
-      appId: this.appId,
-      appSecret: this.appSecret,
-    });
-    logger.info("\nFeishu connected successfully!");
+    return {
+      type: "feishu",
+      appId,
+      appSecret,
+    };
   }
 
   private ensureClient(): Lark.Client {

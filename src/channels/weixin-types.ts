@@ -2,9 +2,9 @@
 export interface WeixinChannelConfig {
   type: "weixin";
   /** The Weixin account ID obtained after QR login. */
-  accountId?: string;
+  accountId: string;
   /** Bot API token for authentication. */
-  token?: string;
+  token: string;
   /** The authenticated user's ID. */
-  userId?: string;
+  userId: string;
 }
