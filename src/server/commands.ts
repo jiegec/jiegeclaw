@@ -96,6 +96,26 @@ registerCommand("abort", async ({ channel, msg, handler }) => {
 });
 
 registerCommand("help", async ({ channel, msg }) => {
-  await channel.send({ to: msg.from, text: "**Available commands:**\n\n- `/cd <path>`: Switch to a different project directory\n- `/status`: Show current session status\n- `/projects`: List opencode projects\n- `/reset`: Reset to a new opencode session\n- `/abort`: Abort the current generation\n- `/restart`: Restart the bot\n- `/help`: Show this help message", contextToken: msg.contextToken });
+  await channel.send({ to: msg.from, text: "**Available commands:**\n\n- `/cd <path>`: Switch to a different project directory\n- `/status`: Show current session status\n- `/projects`: List opencode projects\n- `/compact`: Compact the session context\n- `/reset`: Reset to a new opencode session\n- `/abort`: Abort the current generation\n- `/restart`: Restart the bot\n- `/help`: Show this help message", contextToken: msg.contextToken });
+  return true;
+});
+
+registerCommand("compact", async ({ channel, msg, handler }) => {
+  const status = handler.getStatus(channel.id);
+  if (!status.sessionID) {
+    await channel.send({ to: msg.from, text: "No active session to compact.", contextToken: msg.contextToken });
+    return true;
+  }
+  await channel.send({ to: msg.from, text: "Compacting session...", contextToken: msg.contextToken });
+  try {
+    const result = await handler.compact(channel.id);
+    if (result) {
+      await channel.send({ to: msg.from, text: "Compaction finished.", contextToken: msg.contextToken });
+    } else {
+      await channel.send({ to: msg.from, text: "No active session to compact.", contextToken: msg.contextToken });
+    }
+  } catch (err) {
+    await channel.send({ to: msg.from, text: `Failed to compact: ${err}`, contextToken: msg.contextToken });
+  }
   return true;
 });

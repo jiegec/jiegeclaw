@@ -26,6 +26,7 @@ import {
 import type { StreamHandler, ServerProcess, ChannelState } from "./types.js";
 import { runEventLoop } from "./event-loop.js";
 import logger from "../utils/logger.js";
+import { stringify } from "yaml";
 
 export type { StreamHandler } from "./types.js";
 
@@ -324,6 +325,34 @@ export class OpencodeHandler {
         reject(error);
       });
     });
+  }
+
+  async compact(channelId: string): Promise<boolean> {
+    const state = this.channelStates.get(channelId);
+    if (!state || !state.client || !state.sessionID) return false;
+
+    const result = await state.client.session.messages({ sessionID: state.sessionID });
+    const msgs = result.data ?? [];
+    let lastProviderID: string | undefined;
+    let lastModelID: string | undefined;
+    for (const { info } of msgs) {
+      if (info.role === "assistant") {
+        lastProviderID = info.providerID;
+        lastModelID = info.modelID;
+      }
+    }
+    if (!lastProviderID || !lastModelID) throw new Error("No model/provider found in session history");
+
+    const cmdResult = await state.client.session.summarize({
+      sessionID: state.sessionID,
+      providerID: lastProviderID,
+      modelID: lastModelID,
+    });
+    if (cmdResult.error !== undefined) {
+      throw new Error(`Compaction failed:\n${stringify(cmdResult.error)}`);
+    }
+
+    return true;
   }
 
   /** Stop all opencode sessions and kill all server processes. */
