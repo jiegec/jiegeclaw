@@ -106,13 +106,15 @@ registerCommand("compact", async ({ channel, msg, handler }) => {
     await channel.send({ to: msg.from, text: "No active session to compact.", contextToken: msg.contextToken });
     return true;
   }
+  // Notify user that compaction is in progress (it may take a while).
   await channel.send({ to: msg.from, text: "Compacting session...", contextToken: msg.contextToken });
   try {
-    const result = await handler.compact(channel.id);
-    if (result) {
-      await channel.send({ to: msg.from, text: "Compaction finished.", contextToken: msg.contextToken });
+    const summary = await handler.compact(channel.id);
+    if (summary) {
+      // Include the compaction summary so the user can see what was preserved.
+      await channel.send({ to: msg.from, text: `Compaction finished. Summary:\n\n${summary}`, contextToken: msg.contextToken });
     } else {
-      await channel.send({ to: msg.from, text: "No active session to compact.", contextToken: msg.contextToken });
+      await channel.send({ to: msg.from, text: "Compaction finished.", contextToken: msg.contextToken });
     }
   } catch (err) {
     await channel.send({ to: msg.from, text: `Failed to compact: ${err}`, contextToken: msg.contextToken });

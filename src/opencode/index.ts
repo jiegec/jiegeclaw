@@ -327,10 +327,13 @@ export class OpencodeHandler {
     });
   }
 
-  async compact(channelId: string): Promise<boolean> {
+  /** Compact the session context by generating an AI summary, then return the summary text. */
+  async compact(channelId: string): Promise<string | null> {
     const state = this.channelStates.get(channelId);
-    if (!state || !state.client || !state.sessionID) return false;
+    if (!state || !state.client || !state.sessionID) return null;
 
+    // Find providerID/modelID from the most recent assistant message,
+    // as session.summarize() requires both.
     const result = await state.client.session.messages({ sessionID: state.sessionID });
     const msgs = result.data ?? [];
     let lastProviderID: string | undefined;
@@ -343,6 +346,7 @@ export class OpencodeHandler {
     }
     if (!lastProviderID || !lastModelID) throw new Error("No model/provider found in session history");
 
+    // Trigger compaction via summarize(). Returns error if it fails.
     const cmdResult = await state.client.session.summarize({
       sessionID: state.sessionID,
       providerID: lastProviderID,
@@ -352,7 +356,24 @@ export class OpencodeHandler {
       throw new Error(`Compaction failed:\n${stringify(cmdResult.error)}`);
     }
 
-    return true;
+    // After summarizing, the newest assistant message with summary=true
+    // contains the compaction result. Fetch it and extract its text parts.
+    const msgsAfter = await state.client.session.messages({ sessionID: state.sessionID });
+    const summaryMsg = [...(msgsAfter.data ?? [])].reverse().find(
+      (m) => m.info.role === "assistant" && m.info.summary === true,
+    );
+    if (!summaryMsg) return null;
+
+    const detail = await state.client.session.message({
+      sessionID: state.sessionID,
+      messageID: summaryMsg.info.id,
+    });
+    if (detail.error !== undefined) return null;
+
+    const texts = detail.data.parts
+      .filter((p) => p.type === "text")
+      .map((p) => (p as { type: "text"; text: string }).text);
+    return texts.join("\n") || null;
   }
 
   /** Stop all opencode sessions and kill all server processes. */
