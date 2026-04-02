@@ -15,7 +15,7 @@ import { MessageItemType, MessageType, MessageState } from "@tencent-weixin/open
 import type { WeixinMessage, MessageItem, ImageItem } from "@tencent-weixin/openclaw-weixin/src/api/types.js";
 import { DEFAULT_BASE_URL } from "@tencent-weixin/openclaw-weixin/src/auth/accounts.js";
 import { downloadAndDecryptBuffer } from "@tencent-weixin/openclaw-weixin/src/cdn/pic-decrypt.js";
-import { markdownToPlainText } from "@tencent-weixin/openclaw-weixin/src/messaging/send.js";
+import { StreamingMarkdownFilter } from "@tencent-weixin/openclaw-weixin/src/messaging/send.js";
 import type { WeixinChannelConfig } from "./weixin-types.js";
 import qrcodeTerminal from "qrcode-terminal";
 import fs from "node:fs";
@@ -215,8 +215,9 @@ export class WeixinChannel implements Channel {
    */
   async send(msg: OutboundMessage): Promise<void> {
     const clientId = crypto.randomUUID();
-    // Convert markdown to plain text for Weixin
-    const plainText = markdownToPlainText(msg.text);
+    // Convert markdown to plain text for Weixin using StreamingMarkdownFilter
+    const filter = new StreamingMarkdownFilter();
+    const plainText = filter.feed(msg.text) + filter.flush();
     const itemList = plainText
       ? [{ type: MessageItemType.TEXT, text_item: { text: plainText } }]
       : [];
