@@ -50,6 +50,10 @@ registerCommand("status", async ({ channel, msg, handler }) => {
   }
   if (status.sessionID) {
     lines.push(`- **Session:** \`${status.sessionID.slice(0, 8)}\``);
+    const tokens = await handler.getContextTokens(channel.id);
+    if (tokens !== undefined) {
+      lines.push(`- **Context:** ~${tokens.toLocaleString()} tokens`);
+    }
   } else {
     lines.push("- **Session:** not connected");
   }

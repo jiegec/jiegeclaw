@@ -53,6 +53,21 @@ export class OpencodeHandler {
     return getLastDir(channelId) !== undefined;
   }
 
+  /** Estimate current context size from the last assistant message's total tokens. */
+  async getContextTokens(channelId: string): Promise<number | undefined> {
+    const state = this.channelStates.get(channelId);
+    if (!state || !state.client || !state.sessionID) return undefined;
+    const result = await state.client.session.messages({ sessionID: state.sessionID });
+    const msgs = result.data ?? [];
+    for (let i = msgs.length - 1; i >= 0; i--) {
+      const msg = msgs[i].info;
+      if (msg.role === "assistant") {
+        return msg.tokens.total;
+      }
+    }
+    return undefined;
+  }
+
   /** Get the current status of a channel (directory and optional session ID). */
   getStatus(channelId: string): { directory?: string; sessionID?: string } {
     const state = this.channelStates.get(channelId);
