@@ -218,4 +218,58 @@ describe("RateLimiter", () => {
       assert.ok(gap >= 45, `gap ${gap}ms between flush ${i - 1} and ${i} is less than minIntervalMs`);
     }
   });
+
+  it("new requests added during long callback are queued and deduped", async () => {
+    const calls: [string, string][] = [];
+    let resolveA!: () => void;
+    const aFlushing = new Promise<void>((r) => { resolveA = r; });
+    const rl = new RateLimiter<string>(
+      (id, data) => {
+        calls.push([id, data]);
+        if (id === "A") return aFlushing;
+        return Promise.resolve();
+      },
+      { minIntervalMs: 10 },
+    );
+    rl.add("A", "a1");
+    await delay(10); // A starts flushing (long callback)
+    rl.add("B", "b1"); // queued
+    rl.add("A", "a2"); // queued as duplicate
+    rl.add("C", "c1"); // queued
+    resolveA(); // A's callback completes
+    await delay(100); // drain remaining queue
+    // A flushed once (with a1, since a2 arrived during async callback),
+    // then B, then C. a2 is sent as a separate entry after A's first flush completes.
+    assert.equal(calls[0][0], "A");
+    assert.equal(calls[0][1], "a1");
+    const afterA = calls.slice(1);
+    assert.ok(afterA.some(([id, data]) => id === "A" && data === "a2"), "A should be retried with a2");
+    assert.ok(afterA.some(([id]) => id === "B"), "B should be sent");
+    assert.ok(afterA.some(([id]) => id === "C"), "C should be sent");
+    assert.equal(rl.pendingCount, 0);
+  });
+
+  it("multiple streams add during long callback all get sent in order", async () => {
+    const calls: [string, string][] = [];
+    let resolveSlow!: () => void;
+    const slowDone = new Promise<void>((r) => { resolveSlow = r; });
+    const rl = new RateLimiter<string>(
+      (id, data) => {
+        calls.push([id, data]);
+        if (id === "SLOW") return slowDone;
+        return Promise.resolve();
+      },
+      { minIntervalMs: 10 },
+    );
+    rl.add("SLOW", "s1");
+    await delay(10); // SLOW starts
+    rl.add("A", "a1");
+    rl.add("B", "b1");
+    rl.add("C", "c1");
+    resolveSlow(); // SLOW completes
+    await delay(100); // drain
+    assert.deepEqual(calls[0], ["SLOW", "s1"]);
+    assert.deepEqual(calls.slice(1), [["A", "a1"], ["B", "b1"], ["C", "c1"]]);
+    assert.equal(rl.pendingCount, 0);
+  });
 });
