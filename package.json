@@ -18,6 +18,7 @@
   },
   "scripts": {
     "typecheck": "tsc --noEmit",
+    "test": "tsx --test src/**/*.test.ts",
     "start": "tsx src/main.ts",
     "dev": "tsx watch src/main.ts"
   },
