@@ -10,7 +10,7 @@ import type { Channel, InboundMessage, OutboundMessage, ImageAttachment, FeishuC
 import * as Lark from "@larksuiteoapi/node-sdk";
 import type { FeishuChannelConfig } from "./feishu-types.js";
 import { createRl, question } from "../readline.js";
-import { RateLimiter, type RateLimitedItem } from "../utils/rate-limiter.js";
+import { RateLimiter } from "../utils/rate-limiter.js";
 import { bufferToImageAttachment } from "../utils/image.js";
 import logger from "../utils/logger.js";
 
@@ -38,7 +38,9 @@ export class FeishuChannel implements Channel {
     this.id = config.appId;
     this.appId = config.appId;
     this.appSecret = config.appSecret;
-    this.rateLimiter = new RateLimiter(RATE_LIMIT_MS, this.flushStreams.bind(this));
+    this.rateLimiter = new RateLimiter(this.flushStream.bind(this), {
+      minIntervalMs: RATE_LIMIT_MS,
+    });
   }
 
   /**
@@ -337,28 +339,18 @@ export class FeishuChannel implements Channel {
   /**
    * Flush pending stream updates with rate limiting.
    */
-  private async flushStreams(items: Map<string, RateLimitedItem<StreamContext>>): Promise<void> {
+  private async flushStream(streamId: string, ctx: StreamContext): Promise<void> {
     const client = this.ensureClient();
-
-    for (const [, item] of items) {
-      const ctx = item.data;
-
-      try {
-        // Update card element content using SDK
-        await client.cardkit.v1.cardElement.content({
-          path: {
-            card_id: ctx.cardId,
-            element_id: ctx.elementId,
-          },
-          data: {
-            content: ctx.content,
-            sequence: ctx.sequence,
-          },
-        });
-      } catch (err) {
-        logger.error(`[${this.id}] Failed to update card ${ctx.cardId}: ${(err as Error).message}`);
-      }
-    }
+    await client.cardkit.v1.cardElement.content({
+      path: {
+        card_id: ctx.cardId,
+        element_id: ctx.elementId,
+      },
+      data: {
+        content: ctx.content,
+        sequence: ctx.sequence,
+      },
+    });
   }
 
   /** Stop listening and clean up resources. */

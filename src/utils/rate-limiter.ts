@@ -1,6 +1,7 @@
 /**
  * Rate limiter utility for throttling function calls.
  * Ensures minimum time interval between executions and only keeps the latest call data.
+ * On failure, retries individual items with exponential backoff.
  */
 
 import logger from "../utils/logger.js";
@@ -10,18 +11,32 @@ export interface RateLimitedItem<T> {
   data: T;
 }
 
-export type FlushCallback<T> = (items: Map<string, RateLimitedItem<T>>) => Promise<void>;
+export interface RateLimiterOptions {
+  minIntervalMs: number;
+  maxRetries?: number;
+  retryBaseMs?: number;
+}
+
+export type FlushCallback<T> = (id: string, data: T) => Promise<void>;
 
 export class RateLimiter<T> {
   private pendingItems: Map<string, RateLimitedItem<T>> = new Map();
   private flushTimer?: ReturnType<typeof setTimeout>;
   private lastFlushTime: number = 0;
-  private isFlushing: boolean = false;
+  private currentFlush?: Promise<void>;
+  private retries: Map<string, { count: number; timer: ReturnType<typeof setTimeout> }> = new Map();
+  private minIntervalMs: number;
+  private maxRetries: number;
+  private retryBaseMs: number;
 
   constructor(
-    private minIntervalMs: number,
     private flushCallback: FlushCallback<T>,
-  ) { }
+    options: RateLimiterOptions,
+  ) {
+    this.minIntervalMs = options.minIntervalMs;
+    this.maxRetries = options.maxRetries ?? 5;
+    this.retryBaseMs = options.retryBaseMs ?? 500;
+  }
 
   /**
    * Add an item to be flushed with rate limiting.
@@ -52,13 +67,17 @@ export class RateLimiter<T> {
 
   /**
    * Execute the flush operation.
+   * If a flush is already in progress, returns its promise.
    */
-  private async executeFlush(): Promise<void> {
-    if (this.isFlushing || this.pendingItems.size === 0) {
-      return;
+  private executeFlush(): Promise<void> {
+    if (this.currentFlush) {
+      return this.currentFlush;
     }
 
-    this.isFlushing = true;
+    if (this.pendingItems.size === 0) {
+      return Promise.resolve();
+    }
+
     this.lastFlushTime = Date.now();
 
     // Take all current items and clear the map BEFORE await
@@ -66,18 +85,49 @@ export class RateLimiter<T> {
     const itemsToFlush = new Map(this.pendingItems);
     this.pendingItems.clear();
 
-    try {
-      await this.flushCallback(itemsToFlush);
-    } catch (err) {
-      logger.error(`RateLimiter flush failed: ${(err as Error).message}`);
-    } finally {
-      this.isFlushing = false;
+    this.currentFlush = (async () => {
+      for (const [id, item] of itemsToFlush) {
+        // Do not retry if the item to flush is added later
+        if (this.pendingItems.has(id)) {
+          continue;
+        }
+
+        try {
+          // Attempt to flush
+          await this.flushCallback(id, item.data);
+          this.retries.delete(id);
+        } catch (err) {
+          // Retry logic
+          const retry = this.retries.get(id);
+          const count = retry?.count ?? 0;
+          if (count >= this.maxRetries) {
+            logger.error(`RateLimiter item ${id} failed after ${this.maxRetries} retries: ${(err as Error).message}`);
+            this.retries.delete(id);
+            continue;
+          }
+          const delay = this.retryBaseMs * Math.pow(2, count);
+          logger.warn(`RateLimiter item ${id} failed (retry ${count + 1}/${this.maxRetries}), backing off ${delay}ms: ${(err as Error).message}`);
+          const timer = setTimeout(() => {
+            this.retries.delete(id);
+            // Don't overwrite newer data if add() was called during backoff
+            if (!this.pendingItems.has(id)) {
+              this.pendingItems.set(id, item);
+            }
+            this.scheduleFlush();
+          }, delay);
+          this.retries.set(id, { count: count + 1, timer });
+        }
+      }
+
+      this.currentFlush = undefined;
 
       // If new items were added during the flush, schedule another flush
       if (this.pendingItems.size > 0) {
         this.scheduleFlush();
       }
-    }
+    })();
+
+    return this.currentFlush;
   }
 
   /**
@@ -102,6 +152,10 @@ export class RateLimiter<T> {
    * Clear all pending items without flushing.
    */
   clear(): void {
+    for (const { timer } of this.retries.values()) {
+      clearTimeout(timer);
+    }
+    this.retries.clear();
     if (this.flushTimer) {
       clearTimeout(this.flushTimer);
       this.flushTimer = undefined;

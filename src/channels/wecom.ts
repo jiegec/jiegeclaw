@@ -11,7 +11,7 @@ import AiBot from "@wecom/aibot-node-sdk";
 import { generateReqId, type WsFrame, type TextMessage, type ImageMessage, type MixedMessage, MessageType } from "@wecom/aibot-node-sdk";
 import type { WecomChannelConfig } from "./wecom-types.js";
 import { createRl, question } from "../readline.js";
-import { RateLimiter, RateLimitedItem } from "../utils/rate-limiter.js";
+import { RateLimiter } from "../utils/rate-limiter.js";
 import { bufferToImageAttachment } from "../utils/image.js";
 import logger from "../utils/logger.js";
 
@@ -39,7 +39,9 @@ export class WecomChannel implements Channel {
     this.secret = config.secret;
     this.queuedMessages = [];
     this.authenticated = false;
-    this.rateLimiter = new RateLimiter(RATE_LIMIT_MS, this.flushStreams.bind(this));
+    this.rateLimiter = new RateLimiter(this.flushStream.bind(this), {
+      minIntervalMs: RATE_LIMIT_MS,
+    });
   }
 
   /**
@@ -230,15 +232,8 @@ export class WecomChannel implements Channel {
   /**
    * Flush pending stream updates.
    */
-  private async flushStreams(items: Map<string, RateLimitedItem<StreamContext>>): Promise<void> {
-    for (const [streamId, item] of items) {
-      const ctx = item.data;
-      try {
-        await this.wsClient!.replyStream(ctx.frame, ctx.streamId, ctx.content, ctx.finish);
-      } catch (err) {
-        logger.error(`[${this.id}] Failed to send stream ${streamId}: ${(err as Error).message}`);
-      }
-    }
+  private async flushStream(streamId: string, ctx: StreamContext): Promise<void> {
+    await this.wsClient!.replyStream(ctx.frame, ctx.streamId, ctx.content, ctx.finish);
   }
 
   /** Disconnect the WeCom WebSocket client. */
