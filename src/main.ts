@@ -15,6 +15,7 @@ import { registry } from "./channels/registry.js";
 import type { ChannelConfig } from "./config.js";
 import { stringify } from "yaml";
 import logger from "./utils/logger.js";
+import { install } from "./install.js";
 
 /** Config field names that contain secrets and should be masked in output. */
 const SECRET_KEYS = ["token", "userId", "appSecret", "secret"];
@@ -48,9 +49,12 @@ async function main(): Promise<void> {
     case "setup":
       await setupChannels();
       break;
+    case "install":
+      await install();
+      break;
     default:
       logger.error(`Unknown command: ${command}`);
-      logger.error("Usage: jiegeclaw [start|setup]");
+      logger.error("Usage: jiegeclaw [start|setup|install]");
       process.exit(1);
   }
 }
