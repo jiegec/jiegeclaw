@@ -65,6 +65,14 @@ npm start setup add wecom
 npm start
 ```
 
+### Install as systemd user service
+
+Installs `~/.config/systemd/user/jiegeclaw.service`, enables linger, and starts the service. You'll be prompted to confirm each step.
+
+```bash
+npm start install
+```
+
 ### Slash commands
 
 Send these in any messaging channel:
