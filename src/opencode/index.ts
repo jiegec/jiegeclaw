@@ -13,6 +13,7 @@
  */
 
 import { spawn } from "node:child_process";
+import net from "node:net";
 import { createOpencodeClient } from "@opencode-ai/sdk/v2";
 import type { FilePartInput, OpencodeClient, TextPartInput } from "@opencode-ai/sdk/v2";
 import type { InboundMessage } from "../types.js";
@@ -176,9 +177,7 @@ export class OpencodeHandler {
     const savedSessionID = getSessionIdForDir(channelId, directory, sessions);
 
     // Spawn a new opencode server on a unique port
-    const port = this.portCounter++;
-    logger.info(`[${channelId}] Spawning opencode serve on port ${port}...`);
-    const server = await this.spawnServer(directory, port);
+    const server = await this.spawnServer(directory);
     logger.info(`[${channelId}] Server started at ${server.url} (PID: ${server.proc.pid})`);
     const client = createOpencodeClient({ baseUrl: server.url });
 
@@ -293,11 +292,41 @@ export class OpencodeHandler {
   }
 
   /**
+   * Check if a port is available on 127.0.0.1.
+   */
+  private probePort(port: number): Promise<boolean> {
+    return new Promise((resolve) => {
+      const server = net.createServer();
+      server.once("error", () => resolve(false));
+      server.once("listening", () => {
+        server.close();
+        resolve(true);
+      });
+      server.listen(port, "127.0.0.1");
+    });
+  }
+
+  /**
    * Spawn an opencode server child process in the given directory.
+   * Probes the port first; if unavailable, increments the port counter and retries.
    * Waits up to 15 seconds for the server to start and output its listening URL.
    * Rejects if the server exits or times out.
    */
-  private spawnServer(directory: string, port: number): Promise<ServerProcess> {
+  private async spawnServer(directory: string): Promise<ServerProcess> {
+    for (let attempt = 0; attempt < 20; attempt++) {
+      const port = this.portCounter++;
+      const available = await this.probePort(port);
+      if (!available) {
+        logger.warn(`Port ${port} is in use, trying next port`);
+        continue;
+      }
+      logger.info(`Spawning opencode serve on port ${port}...`);
+      return await this.trySpawnServer(directory, port);
+    }
+    throw new Error(`Failed to find available port after 20 attempts`);
+  }
+
+  private trySpawnServer(directory: string, port: number): Promise<ServerProcess> {
     return new Promise((resolve, reject) => {
       const proc = spawn("opencode", [`serve`, `--hostname=127.0.0.1`, `--port=${port}`], {
         // Create in a separate process group
