@@ -4,6 +4,8 @@
  * Processes user commands like /cd, /status, /projects, etc.
  */
 
+import path from "node:path";
+import os from "node:os";
 import type { Channel, InboundMessage } from "../types.js";
 import type { OpencodeHandler } from "../opencode/index.js";
 
@@ -35,8 +37,10 @@ registerCommand("cd", async ({ channel, msg, handler }, args) => {
     await channel.send({ to: msg.from, text: "Usage: `/cd <path>`", contextToken: msg.contextToken });
     return true;
   }
-  await handler.cd(channel.id, args);
-  await channel.send({ to: msg.from, text: `📁 Switched to ${args}`, contextToken: msg.contextToken });
+  const dir = args.replace(/^~/, os.homedir());
+  const resolved = path.resolve(dir);
+  await handler.cd(channel.id, resolved);
+  await channel.send({ to: msg.from, text: `📁 Switched to ${resolved}`, contextToken: msg.contextToken });
   return true;
 });
 
