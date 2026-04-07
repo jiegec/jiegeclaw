@@ -338,7 +338,7 @@ export class OpencodeHandler {
       const timeout = setTimeout(() => {
         proc.kill();
         reject(new Error(`Timeout waiting for opencode server in ${directory}`));
-      }, 15000);
+      }, 30000);
 
       let output = "";
       const onOutput = (chunk: Buffer) => {
