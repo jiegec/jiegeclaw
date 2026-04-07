@@ -26,13 +26,13 @@ export interface CronJob {
   channelId: string;
   directory: string;
   to: string;
-  nextRun?: Date;
+  nextRun?: string;
 }
 
 export type CronJobCallback = (job: CronJob) => Promise<void>;
 
-function nextRunDate(schedule: string, now: Date): Date {
-  return CronExpressionParser.parse(schedule, { currentDate: now }).next().toDate();
+function nextRunDate(schedule: string): Date {
+  return CronExpressionParser.parse(schedule).next().toDate();
 }
 
 function loadJobs(): CronJob[] {
@@ -65,11 +65,12 @@ export class CronScheduler {
       try {
         CronExpressionParser.parse(job.schedule);
         this.jobs.set(job.id, job);
-        logger.info(`Cron job "${job.name}" (${job.id}) loaded with schedule ${job.schedule}`);
-      } catch {
-        logger.warn(`Cron job "${job.name}" (${job.id}) has invalid schedule "${job.schedule}", skipping`);
+        logger.info(`Cron job "${job.name}" (${job.id}) loaded, schedule=${job.schedule}, nextRun=${job.nextRun}`);
+      } catch (err) {
+        logger.warn(`Cron job "${job.name}" (${job.id}) has invalid schedule "${job.schedule}" (${(err as Error).message}), skipping`);
       }
     }
+    this.persist();
     this.tick();
   }
 
@@ -89,6 +90,7 @@ export class CronScheduler {
     }
 
     const id = crypto.randomUUID().slice(0, 8);
+    const nextRun = nextRunDate(schedule).toISOString();
     const job: CronJob = {
       id,
       name: input.name,
@@ -97,16 +99,20 @@ export class CronScheduler {
       channelId: input.channelId,
       directory: input.directory,
       to: input.to,
+      nextRun,
     };
     this.jobs.set(id, job);
+    logger.info(`Cron job "${job.name}" (${id}) added, schedule=${schedule}, nextRun=${nextRun}`);
     this.persist();
     this.scheduleNext();
     return job;
   }
 
   remove(id: string): boolean {
+    const job = this.jobs.get(id);
     const deleted = this.jobs.delete(id);
     if (deleted) {
+      logger.info(`Cron job "${job?.name}" (${id}) removed`);
       this.persist();
       this.scheduleNext();
     }
@@ -114,11 +120,7 @@ export class CronScheduler {
   }
 
   list(): CronJob[] {
-    const now = new Date();
-    return Array.from(this.jobs.values()).map((j) => ({
-      ...j,
-      nextRun: nextRunDate(j.schedule, now),
-    }));
+    return Array.from(this.jobs.values());
   }
 
   async trigger(id: string): Promise<void> {
@@ -142,21 +144,31 @@ export class CronScheduler {
   private tick(): void {
     if (this.jobs.size === 0) return;
 
-    const now = new Date();
+    const now = Date.now();
     let nearestMs = Infinity;
+    let nearestJob: CronJob | undefined;
 
     for (const job of this.jobs.values()) {
-      const next = nextRunDate(job.schedule, now);
-      const ms = next.getTime() - Date.now();
+      if (!job.nextRun) continue;
+      const ms = new Date(job.nextRun).getTime() - now;
       if (ms <= 0) {
+        logger.info(`Cron job "${job.name}" (${job.id}) firing (was scheduled for ${job.nextRun})`);
         this.fireJob(job);
+        job.nextRun = nextRunDate(job.schedule).toISOString();
+        logger.info(`Cron job "${job.name}" (${job.id}) next run scheduled for ${job.nextRun}`);
+        this.persist();
         continue;
       }
-      if (ms < nearestMs) nearestMs = ms;
+      if (ms < nearestMs) {
+        nearestMs = ms;
+        nearestJob = job;
+      }
     }
 
     if (nearestMs === Infinity) return;
     if (nearestMs < 1000) nearestMs = 1000;
+
+    logger.debug(`Next cron tick in ${nearestMs}ms for "${nearestJob?.name}" (${nearestJob?.id})`);
 
     this.timer = setTimeout(() => {
       this.timer = undefined;
@@ -165,8 +177,10 @@ export class CronScheduler {
   }
 
   private fireJob(job: CronJob): void {
-    this.callback(job).catch((err: Error) => {
-      logger.error(`Cron job "${job.name}" (${job.id}) failed: ${err.message}`);
-    });
+    this.callback(job)
+      .then(() => logger.info(`Cron job "${job.name}" (${job.id}) completed`))
+      .catch((err: Error) => {
+        logger.error(`Cron job "${job.name}" (${job.id}) failed: ${err.message}`);
+      });
   }
 }

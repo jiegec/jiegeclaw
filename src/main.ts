@@ -146,6 +146,6 @@ async function setupChannels(): Promise<void> {
 }
 
 main().catch((err) => {
-  logger.error("Fatal error:", err);
+  logger.error(`Fatal error: ${(err as Error).message}`);
   process.exit(1);
 });

@@ -178,6 +178,6 @@ export async function runServer(): Promise<void> {
 }
 
 runServer().catch((err) => {
-  logger.error("Fatal error:", err);
+  logger.error(`Fatal error: ${(err as Error).message}`);
   process.exit(1);
 });
