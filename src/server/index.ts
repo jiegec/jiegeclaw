@@ -12,16 +12,37 @@ import { OpencodeHandler } from "../opencode/index.js";
 import { loadConfig, createChannel } from "../config.js";
 import { getCommand, hasCommand } from "./commands.js";
 import { PendingReplyManager, ChannelStreamHandler } from "./stream-handler.js";
+import { CronScheduler } from "../utils/cron-scheduler.js";
 import logger from "../utils/logger.js";
 
 export class Server {
   private channels: Channel[] = [];
   private handler: OpencodeHandler;
   private replyManager: PendingReplyManager;
+  private cron: CronScheduler;
 
   constructor(handler: OpencodeHandler) {
     this.handler = handler;
     this.replyManager = new PendingReplyManager();
+    this.cron = new CronScheduler(async (job) => {
+      const channel = this.channels.find((c) => c.id === job.channelId);
+      if (!channel) {
+        logger.error(`Cron job "${job.name}" (${job.id}): channel ${job.channelId} not found`);
+        return;
+      }
+      try {
+        await channel.send({ to: job.to, text: `⏰ **[${job.name}]** Running...` });
+        const response = await this.handler.runPrompt(job.directory, job.prompt);
+        await channel.send({ to: job.to, text: `⏰ **[${job.name}]**\n\n${response}` });
+      } catch (err) {
+        logger.error(`Cron job "${job.name}" (${job.id}) failed: ${(err as Error).message}`);
+        try {
+          await channel.send({ to: job.to, text: `⏰ **[${job.name}]** Failed: ${(err as Error).message}` });
+        } catch {
+          // ignore send errors
+        }
+      }
+    });
   }
 
   addChannel(channel: Channel): void {
@@ -32,6 +53,8 @@ export class Server {
   }
 
   async start(): Promise<void> {
+    this.cron.start();
+
     // Create and register stream handlers for each channel
     for (const channel of this.channels) {
       const stream = new ChannelStreamHandler(channel, this.replyManager);
@@ -72,7 +95,7 @@ export class Server {
             const args = slashMatch[2].trim();
 
             if (hasCommand(cmd)) {
-              const handled = await getCommand(cmd)!({ channel, msg, handler: this.handler }, args);
+              const handled = await getCommand(cmd)!({ channel, msg, handler: this.handler, cron: this.cron }, args);
               if (handled) return;
             }
 
@@ -109,6 +132,7 @@ export class Server {
   }
 
   async stop(): Promise<void> {
+    this.cron.stop();
     await this.handler.stop();
     this.replyManager.clearAll();
     for (const channel of this.channels) {

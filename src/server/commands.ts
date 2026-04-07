@@ -8,11 +8,13 @@ import path from "node:path";
 import os from "node:os";
 import type { Channel, InboundMessage } from "../types.js";
 import type { OpencodeHandler } from "../opencode/index.js";
+import type { CronScheduler, CronJob } from "../utils/cron-scheduler.js";
 
 export interface CommandContext {
   channel: Channel;
   msg: InboundMessage;
   handler: OpencodeHandler;
+  cron: CronScheduler;
 }
 
 export type CommandHandler = (ctx: CommandContext, args: string) => Promise<boolean>;
@@ -104,7 +106,7 @@ registerCommand("abort", async ({ channel, msg, handler }) => {
 });
 
 registerCommand("help", async ({ channel, msg }) => {
-  await channel.send({ to: msg.from, text: "**Available commands:**\n\n- `/cd <path>`: Switch to a different project directory\n- `/status`: Show current session status\n- `/projects`: List opencode projects\n- `/compact`: Compact the session context\n- `/reset`: Reset to a new opencode session\n- `/abort`: Abort the current generation\n- `/restart`: Restart the bot\n- `/help`: Show this help message", contextToken: msg.contextToken });
+  await channel.send({ to: msg.from, text: "**Available commands:**\n\n- `/cd <path>`: Switch to a different project directory\n- `/status`: Show current session status\n- `/projects`: List opencode projects\n- `/compact`: Compact the session context\n- `/reset`: Reset to a new opencode session\n- `/abort`: Abort the current generation\n- `/restart`: Restart the bot\n- `/cron list`: List all cron jobs\n- `/cron add <name> <schedule> <prompt>`: Add a named cron job\n- `/cron remove <id>`: Remove a cron job\n- `/cron trigger <id>`: Manually trigger a cron job\n- `/help`: Show this help message", contextToken: msg.contextToken });
   return true;
 });
 
@@ -127,5 +129,93 @@ registerCommand("compact", async ({ channel, msg, handler }) => {
   } catch (err) {
     await channel.send({ to: msg.from, text: `Failed to compact: ${err}`, contextToken: msg.contextToken });
   }
+  return true;
+});
+
+registerCommand("cron", async ({ channel, msg, handler, cron }, args) => {
+  if (!cron) {
+    await channel.send({ to: msg.from, text: "Cron scheduler is not available.", contextToken: msg.contextToken });
+    return true;
+  }
+
+  const subCmd = args.match(/^(\S+)/)?.[1];
+  const rest = args.replace(/^\S+\s*/, "").trim();
+
+  if (subCmd === "list") {
+    const jobs = cron.list();
+    if (!jobs.length) {
+      await channel.send({ to: msg.from, text: "No cron jobs.", contextToken: msg.contextToken });
+      return true;
+    }
+    const lines = jobs.map((j: CronJob) => {
+      const nextRun = j.nextRun ? j.nextRun.toLocaleString() : "—";
+      return `- **${j.name}** (\`${j.id}\`) \`${j.schedule}\` — next: ${nextRun}`;
+    });
+    await channel.send({ to: msg.from, text: `**Cron jobs (${jobs.length}):**\n\n${lines.join("\n")}`, contextToken: msg.contextToken });
+    return true;
+  }
+
+  if (subCmd === "add") {
+    const firstSpace = rest.indexOf(" ");
+    if (firstSpace === -1) {
+      await channel.send({ to: msg.from, text: "Usage: `/cron add <name> <schedule> <prompt>`\n\nSchedule examples:\n- `0 9 * * *` — every day at 9:00\n- `*/30 * * * *` — every 30 minutes\n- `0 */2 * * 1-5` — every 2 hours on weekdays", contextToken: msg.contextToken });
+      return true;
+    }
+    const name = rest.slice(0, firstSpace);
+    const afterName = rest.slice(firstSpace + 1).trim();
+    const tokens = afterName.split(/\s+/);
+
+    if (tokens.length < 6) {
+      await channel.send({ to: msg.from, text: "Usage: `/cron add <name> <schedule> <prompt>`\n\nSchedule must be a 5-field cron expression, e.g. `0 9 * * *`", contextToken: msg.contextToken });
+      return true;
+    }
+
+    const schedule = tokens.slice(0, 5).join(" ");
+    const prompt = tokens.slice(5).join(" ");
+
+    const directory = handler.getStatus(channel.id).directory;
+    if (!directory) {
+      await channel.send({ to: msg.from, text: "No directory set. Use `/cd <path>` first.", contextToken: msg.contextToken });
+      return true;
+    }
+
+    try {
+      const job = cron.add({ name, schedule, prompt, channelId: channel.id, directory, to: msg.from });
+      await channel.send({ to: msg.from, text: `Cron job **${job.name}** (\`${job.id}\`) added with schedule \`${job.schedule}\``, contextToken: msg.contextToken });
+    } catch (err) {
+      await channel.send({ to: msg.from, text: `Failed to add cron job: ${(err as Error).message}`, contextToken: msg.contextToken });
+    }
+    return true;
+  }
+
+  if (subCmd === "remove") {
+    if (!rest) {
+      await channel.send({ to: msg.from, text: "Usage: `/cron remove <id>`", contextToken: msg.contextToken });
+      return true;
+    }
+    const removed = cron.remove(rest);
+    if (removed) {
+      await channel.send({ to: msg.from, text: `Cron job \`${rest}\` removed.`, contextToken: msg.contextToken });
+    } else {
+      await channel.send({ to: msg.from, text: `Cron job \`${rest}\` not found.`, contextToken: msg.contextToken });
+    }
+    return true;
+  }
+
+  if (subCmd === "trigger") {
+    if (!rest) {
+      await channel.send({ to: msg.from, text: "Usage: `/cron trigger <id>`", contextToken: msg.contextToken });
+      return true;
+    }
+    try {
+      await cron.trigger(rest);
+      await channel.send({ to: msg.from, text: `Cron job \`${rest}\` triggered.`, contextToken: msg.contextToken });
+    } catch (err) {
+      await channel.send({ to: msg.from, text: `Failed to trigger: ${(err as Error).message}`, contextToken: msg.contextToken });
+    }
+    return true;
+  }
+
+  await channel.send({ to: msg.from, text: "Usage: `/cron <list|add|remove|trigger> ...`\n\n- `/cron list`: List all cron jobs\n- `/cron add <name> <schedule> <prompt>`: Add a cron job\n- `/cron remove <id>`: Remove a cron job\n- `/cron trigger <id>`: Manually trigger a cron job", contextToken: msg.contextToken });
   return true;
 });

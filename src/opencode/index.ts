@@ -420,6 +420,37 @@ export class OpencodeHandler {
     return texts.join("\n") || null;
   }
 
+  async runPrompt(directory: string, prompt: string): Promise<string> {
+    const server = await this.spawnServer(directory);
+    const client = createOpencodeClient({ baseUrl: server.url });
+    const session = await client.session.create();
+    const sessionID = session.data?.id;
+    if (!sessionID) throw new Error("Failed to create session");
+
+    try {
+      const resp = await client.session.prompt({
+        sessionID,
+        parts: [{ type: "text", text: prompt }],
+      });
+
+      return resp.data?.parts
+        .filter((p) => p.type === "text")
+        .map((p) => p.text)
+        .join("\n") ?? "(no response)";
+    } finally {
+      try {
+        await client.global.dispose();
+      } catch {
+        // ignore cleanup errors
+      }
+      server.close();
+      await new Promise<void>((resolve) => {
+        server.proc.on("exit", () => resolve());
+        if (server.proc.exitCode !== null) resolve();
+      });
+    }
+  }
+
   /** Stop all opencode sessions and kill all server processes. */
   async stop(): Promise<void> {
     const stopPromises: Promise<void>[] = [];
