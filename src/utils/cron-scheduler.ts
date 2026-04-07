@@ -150,25 +150,30 @@ export class CronScheduler {
 
     for (const job of this.jobs.values()) {
       if (!job.nextRun) continue;
-      const ms = new Date(job.nextRun).getTime() - now;
+      let ms = new Date(job.nextRun).getTime() - now;
       if (ms <= 0) {
         logger.info(`Cron job "${job.name}" (${job.id}) firing (was scheduled for ${job.nextRun})`);
         this.fireJob(job);
-        job.nextRun = nextRunDate(job.schedule).toISOString();
+
+        const nextRun = nextRunDate(job.schedule);
+        ms = nextRun.getTime() - now;
+        job.nextRun = nextRun.toISOString();
         logger.info(`Cron job "${job.name}" (${job.id}) next run scheduled for ${job.nextRun}`);
         this.persist();
-        continue;
       }
-      if (ms < nearestMs) {
+      if (0 <= ms && ms < nearestMs) {
         nearestMs = ms;
         nearestJob = job;
       }
     }
 
-    if (nearestMs === Infinity) return;
+    if (nearestMs === Infinity) {
+      logger.info(`No more cron jobs pending`);
+      return;
+    }
     if (nearestMs < 1000) nearestMs = 1000;
 
-    logger.debug(`Next cron tick in ${nearestMs}ms for "${nearestJob?.name}" (${nearestJob?.id})`);
+    logger.info(`Next cron tick in ${nearestMs}ms for "${nearestJob?.name}" (${nearestJob?.id})`);
 
     this.timer = setTimeout(() => {
       this.timer = undefined;
