@@ -149,7 +149,7 @@ registerCommand("cron", async ({ channel, msg, handler, cron }, args) => {
     }
     const lines = jobs.map((j: CronJob) => {
       const nextRun = j.nextRun ? j.nextRun.toLocaleString() : "—";
-      return `- **${j.name}** (\`${j.id}\`) \`${j.schedule}\` — next: ${nextRun}`;
+      return `- **${j.name}** (\`${j.id}\`) \`${j.schedule}\` in \`${j.directory}\`, scheduled to run on ${nextRun}`;
     });
     await channel.send({ to: msg.from, text: `**Cron jobs (${jobs.length}):**\n\n${lines.join("\n")}`, contextToken: msg.contextToken });
     return true;
