@@ -3,7 +3,7 @@ import path from "node:path";
 import os from "node:os";
 import crypto from "node:crypto";
 import { parse, stringify } from "yaml";
-import { parseSchedule, nextCronMs } from "./cron-parser.js";
+import { CronExpressionParser } from "cron-parser";
 import logger from "./logger.js";
 
 const CONFIG_DIR = path.join(os.homedir(), ".jiegeclaw");
@@ -32,7 +32,7 @@ export interface CronJob {
 export type CronJobCallback = (job: CronJob) => Promise<void>;
 
 interface InternalJob extends CronJob {
-  fields: string[];
+  interval: ReturnType<typeof CronExpressionParser.parse>;
 }
 
 function loadJobs(): CronJob[] {
@@ -62,13 +62,13 @@ export class CronScheduler {
   start(): void {
     const saved = loadJobs();
     for (const job of saved) {
-      const fields = job.schedule.split(/\s+/);
-      if (fields.length !== 5) {
+      try {
+        const interval = CronExpressionParser.parse(job.schedule);
+        this.jobs.set(job.id, { ...job, interval });
+        logger.info(`Cron job "${job.name}" (${job.id}) loaded with schedule ${job.schedule}`);
+      } catch {
         logger.warn(`Cron job "${job.name}" (${job.id}) has invalid schedule "${job.schedule}", skipping`);
-        continue;
       }
-      this.jobs.set(job.id, { ...job, fields });
-      logger.info(`Cron job "${job.name}" (${job.id}) loaded with schedule ${job.schedule}`);
     }
     this.tick();
   }
@@ -81,20 +81,23 @@ export class CronScheduler {
   }
 
   add(input: CronJobInput): CronJob {
-    const cron = parseSchedule(input.schedule);
-    if (!cron) throw new Error(`Invalid schedule: "${input.schedule}"`);
+    let interval: ReturnType<typeof CronExpressionParser.parse>;
+    try {
+      interval = CronExpressionParser.parse(input.schedule);
+    } catch {
+      throw new Error(`Invalid schedule: "${input.schedule}"`);
+    }
 
     const id = crypto.randomUUID().slice(0, 8);
-    const fields = cron.split(/\s+/);
     const job: InternalJob = {
       id,
       name: input.name,
-      schedule: cron,
+      schedule: interval.stringify().replace(/^0\s/, ""),
       prompt: input.prompt,
       channelId: input.channelId,
       directory: input.directory,
       to: input.to,
-      fields,
+      interval,
     };
     this.jobs.set(id, job);
     this.persist();
@@ -112,17 +115,19 @@ export class CronScheduler {
   }
 
   list(): CronJob[] {
-    const now = new Date();
-    return Array.from(this.jobs.values()).map((j) => ({
-      id: j.id,
-      name: j.name,
-      schedule: j.schedule,
-      prompt: j.prompt,
-      channelId: j.channelId,
-      directory: j.directory,
-      to: j.to,
-      nextRun: new Date(now.getTime() + nextCronMs(j.fields, now)),
-    }));
+    return Array.from(this.jobs.values()).map((j) => {
+      const next = j.interval.next();
+      return {
+        id: j.id,
+        name: j.name,
+        schedule: j.schedule,
+        prompt: j.prompt,
+        channelId: j.channelId,
+        directory: j.directory,
+        to: j.to,
+        nextRun: next.toDate(),
+      };
+    });
   }
 
   async trigger(id: string): Promise<void> {
@@ -132,7 +137,7 @@ export class CronScheduler {
   }
 
   private persist(): void {
-    saveJobs(Array.from(this.jobs.values()).map(({ fields: _f, ...rest }) => rest));
+    saveJobs(Array.from(this.jobs.values()).map(({ interval: _i, ...rest }) => rest));
   }
 
   private scheduleNext(): void {
@@ -150,7 +155,8 @@ export class CronScheduler {
     let nearestMs = Infinity;
 
     for (const job of this.jobs.values()) {
-      const ms = nextCronMs(job.fields, now);
+      const next = job.interval.next();
+      const ms = next.getTime() - Date.now();
       if (ms <= 0) {
         this.fireJob(job);
         continue;
