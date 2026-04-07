@@ -106,7 +106,7 @@ registerCommand("abort", async ({ channel, msg, handler }) => {
 });
 
 registerCommand("help", async ({ channel, msg }) => {
-  await channel.send({ to: msg.from, text: "**Available commands:**\n\n- `/cd <path>`: Switch to a different project directory\n- `/status`: Show current session status\n- `/projects`: List opencode projects\n- `/compact`: Compact the session context\n- `/reset`: Reset to a new opencode session\n- `/abort`: Abort the current generation\n- `/restart`: Restart the bot\n- `/cron list`: List all cron jobs\n- `/cron add <name> <schedule> <prompt>`: Add a named cron job\n- `/cron remove <id>`: Remove a cron job\n- `/cron trigger <id>`: Manually trigger a cron job\n- `/help`: Show this help message", contextToken: msg.contextToken });
+  await channel.send({ to: msg.from, text: "**Available commands:**\n\n- `/cd <path>`: Switch to a different project directory\n- `/status`: Show current session status\n- `/projects`: List opencode projects\n- `/compact`: Compact the session context\n- `/reset`: Reset to a new opencode session\n- `/abort`: Abort the current generation\n- `/restart`: Restart the bot\n- `/cron list`: List all cron jobs\n- `/cron add <name> <schedule> <prompt>`: Add a named cron job\n- `/cron remove <id|name>`: Remove a cron job\n- `/cron trigger <id|name>`: Manually trigger a cron job\n- `/help`: Show this help message", contextToken: msg.contextToken });
   return true;
 });
 
@@ -140,6 +140,16 @@ registerCommand("cron", async ({ channel, msg, handler, cron }, args) => {
 
   const subCmd = args.match(/^(\S+)/)?.[1];
   const rest = args.replace(/^\S+\s*/, "").trim();
+
+  function resolveId(input: string): string | string[] | undefined {
+    const jobs = cron.list();
+    const exact = jobs.filter((j) => j.id === input);
+    if (exact.length === 1) return exact[0].id;
+    const named = jobs.filter((j) => j.name === input);
+    if (named.length === 0) return undefined;
+    if (named.length === 1) return named[0].id;
+    return named.map((j) => `\`${j.name}\` (\`${j.id}\`)`);
+  }
 
   if (subCmd === "list") {
     const jobs = cron.list();
@@ -190,12 +200,21 @@ registerCommand("cron", async ({ channel, msg, handler, cron }, args) => {
 
   if (subCmd === "remove") {
     if (!rest) {
-      await channel.send({ to: msg.from, text: "Usage: `/cron remove <id>`", contextToken: msg.contextToken });
+      await channel.send({ to: msg.from, text: "Usage: `/cron remove <id|name>`", contextToken: msg.contextToken });
       return true;
     }
-    const removed = cron.remove(rest);
+    const resolved = resolveId(rest);
+    if (!resolved) {
+      await channel.send({ to: msg.from, text: `Cron job \`${rest}\` not found.`, contextToken: msg.contextToken });
+      return true;
+    }
+    if (Array.isArray(resolved)) {
+      await channel.send({ to: msg.from, text: `Multiple cron jobs match \`${rest}\`, use an id:\n${resolved.join("\n")}`, contextToken: msg.contextToken });
+      return true;
+    }
+    const removed = cron.remove(resolved);
     if (removed) {
-      await channel.send({ to: msg.from, text: `Cron job \`${rest}\` removed.`, contextToken: msg.contextToken });
+      await channel.send({ to: msg.from, text: `Cron job \`${rest}\` (\`${resolved}\`) removed.`, contextToken: msg.contextToken });
     } else {
       await channel.send({ to: msg.from, text: `Cron job \`${rest}\` not found.`, contextToken: msg.contextToken });
     }
@@ -204,18 +223,27 @@ registerCommand("cron", async ({ channel, msg, handler, cron }, args) => {
 
   if (subCmd === "trigger") {
     if (!rest) {
-      await channel.send({ to: msg.from, text: "Usage: `/cron trigger <id>`", contextToken: msg.contextToken });
+      await channel.send({ to: msg.from, text: "Usage: `/cron trigger <id|name>`", contextToken: msg.contextToken });
+      return true;
+    }
+    const resolved = resolveId(rest);
+    if (!resolved) {
+      await channel.send({ to: msg.from, text: `Cron job \`${rest}\` not found.`, contextToken: msg.contextToken });
+      return true;
+    }
+    if (Array.isArray(resolved)) {
+      await channel.send({ to: msg.from, text: `Multiple cron jobs match \`${rest}\`, use an id:\n${resolved.join("\n")}`, contextToken: msg.contextToken });
       return true;
     }
     try {
-      await cron.trigger(rest);
-      await channel.send({ to: msg.from, text: `Cron job \`${rest}\` triggered.`, contextToken: msg.contextToken });
+      await cron.trigger(resolved);
+      await channel.send({ to: msg.from, text: `Cron job \`${rest}\` (\`${resolved}\`) triggered.`, contextToken: msg.contextToken });
     } catch (err) {
       await channel.send({ to: msg.from, text: `Failed to trigger: ${(err as Error).message}`, contextToken: msg.contextToken });
     }
     return true;
   }
 
-  await channel.send({ to: msg.from, text: "Usage: `/cron <list|add|remove|trigger> ...`\n\n- `/cron list`: List all cron jobs\n- `/cron add <name> <schedule> <prompt>`: Add a cron job\n- `/cron remove <id>`: Remove a cron job\n- `/cron trigger <id>`: Manually trigger a cron job", contextToken: msg.contextToken });
+  await channel.send({ to: msg.from, text: "Usage: `/cron <list|add|remove|trigger> ...`\n\n- `/cron list`: List all cron jobs\n- `/cron add <name> <schedule> <prompt>`: Add a cron job\n- `/cron remove <id|name>`: Remove a cron job\n- `/cron trigger <id|name>`: Manually trigger a cron job", contextToken: msg.contextToken });
   return true;
 });
