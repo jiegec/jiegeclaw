@@ -14,9 +14,14 @@
 
 import { spawn } from "node:child_process";
 import net from "node:net";
+import { setGlobalDispatcher, Agent } from "undici";
 import { createOpencodeClient } from "@opencode-ai/sdk/v2";
 import type { FilePartInput, OpencodeClient, TextPartInput } from "@opencode-ai/sdk/v2";
 import type { InboundMessage } from "../types.js";
+
+// Avoid 5 minute timeout for /cron tasks
+setGlobalDispatcher(new Agent({ bodyTimeout: 0 }));
+
 import {
   loadSessions,
   getLastDir,
