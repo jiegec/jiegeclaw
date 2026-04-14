@@ -25,19 +25,30 @@ export class Server {
     this.handler = handler;
     this.replyManager = new PendingReplyManager();
     this.cron = new CronScheduler(async (job) => {
-      const channel = this.channels.find((c) => c.id === job.channelId);
-      if (!channel) {
-        logger.error(`Cron job "${job.name}" (${job.id}): channel ${job.channelId} not found`);
-        return;
+      for (const target of job.targets) {
+        const channel = this.channels.find((c) => c.id === target.channelId);
+        if (!channel) {
+          logger.error(`Cron job "${job.name}" (${job.id}): channel ${target.channelId} not found`);
+          continue;
+        }
+        try {
+          await channel.send({ to: target.to, text: `⏰ **[${job.name}]** Running...` });
+        } catch {
+          // ignore send errors
+        }
       }
+      let response: string;
       try {
-        await channel.send({ to: job.to, text: `⏰ **[${job.name}]** Running...` });
-        const response = await this.handler.runPrompt(job.directory, job.prompt);
-        await channel.send({ to: job.to, text: `⏰ **[${job.name}]**\n\n${response}` });
+        response = await this.handler.runPrompt(job.directory, job.prompt);
       } catch (err) {
         logger.error(`Cron job "${job.name}" (${job.id}) failed: ${(err as Error).message}`);
+        response = `Failed: ${(err as Error).message}`;
+      }
+      for (const target of job.targets) {
+        const channel = this.channels.find((c) => c.id === target.channelId);
+        if (!channel) continue;
         try {
-          await channel.send({ to: job.to, text: `⏰ **[${job.name}]** Failed: ${(err as Error).message}` });
+          await channel.send({ to: target.to, text: `⏰ **[${job.name}]**\n\n${response}` });
         } catch {
           // ignore send errors
         }

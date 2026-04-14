@@ -18,14 +18,18 @@ export interface CronJobInput {
   to: string;
 }
 
+export interface CronJobTarget {
+  channelId: string;
+  to: string;
+}
+
 export interface CronJob {
   id: string;
   name: string;
   schedule: string;
   prompt: string;
-  channelId: string;
+  targets: CronJobTarget[];
   directory: string;
-  to: string;
   nextRun?: string;
 }
 
@@ -96,9 +100,8 @@ export class CronScheduler {
       name: input.name,
       schedule,
       prompt: input.prompt,
-      channelId: input.channelId,
+      targets: [{ channelId: input.channelId, to: input.to }],
       directory: input.directory,
-      to: input.to,
       nextRun,
     };
     this.jobs.set(id, job);
@@ -127,6 +130,33 @@ export class CronScheduler {
     const job = this.jobs.get(id);
     if (!job) throw new Error(`Cron job "${id}" not found`);
     await this.callback(job);
+  }
+
+  subscribe(id: string, target: CronJobTarget): void {
+    const job = this.jobs.get(id);
+    if (!job) throw new Error(`Cron job "${id}" not found`);
+    if (job.targets.some((t) => t.channelId === target.channelId && t.to === target.to)) {
+      throw new Error(`Channel ${target.channelId} (to: ${target.to}) is already subscribed`);
+    }
+    job.targets.push(target);
+    logger.info(`Cron job "${job.name}" (${id}): subscribed channel ${target.channelId} (to: ${target.to})`);
+    this.persist();
+  }
+
+  unsubscribe(id: string, target: Partial<CronJobTarget>): boolean {
+    const job = this.jobs.get(id);
+    if (!job) throw new Error(`Cron job "${id}" not found`);
+    if (job.targets.length <= 1) throw new Error("Cannot unsubscribe the last target; use `/cron remove` to delete the job");
+    const before = job.targets.length;
+    job.targets = job.targets.filter(
+      (t) => !(t.channelId === target.channelId || target.channelId === undefined) || !(t.to === target.to || target.to === undefined),
+    );
+    const removed = before - job.targets.length;
+    if (removed > 0) {
+      logger.info(`Cron job "${job.name}" (${id}): unsubscribed ${removed} target(s)`);
+      this.persist();
+    }
+    return removed > 0;
   }
 
   private persist(): void {
