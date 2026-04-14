@@ -33,8 +33,8 @@ export class Server {
         }
         try {
           await channel.send({ to: target.to, text: `⏰ **[${job.name}]** Running...` });
-        } catch {
-          // ignore send errors
+        } catch (err) {
+          logger.error(`Cron job "${job.name}" (${job.id}): failed to send "Running..." notification: ${(err as Error).message}`);
         }
       }
       let response: string;
@@ -49,8 +49,8 @@ export class Server {
         if (!channel) continue;
         try {
           await channel.send({ to: target.to, text: `⏰ **[${job.name}]**\n\n${response}` });
-        } catch {
-          // ignore send errors
+        } catch (err) {
+          logger.error(`Cron job "${job.name}" (${job.id}): failed to send result: ${(err as Error).message}`);
         }
       }
     });
