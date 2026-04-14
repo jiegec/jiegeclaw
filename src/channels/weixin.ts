@@ -162,6 +162,12 @@ export class WeixinChannel implements Channel {
           continue;
         }
 
+        if (resp.errcode !== undefined && resp.errcode !== 0) {
+          logger.error(`getUpdates error: errcode=${resp.errcode} errmsg=${resp.errmsg}`);
+          await sleep(5_000, this.abortController.signal);
+          continue;
+        }
+
         // Persist the sync buffer to avoid re-processing on restart
         if (resp.get_updates_buf) {
           saveSyncBuf(resp.get_updates_buf);
@@ -224,7 +230,7 @@ export class WeixinChannel implements Channel {
       ? [{ type: MessageItemType.TEXT, text_item: { text: plainText } }]
       : [];
 
-    logger.info(`[${this.id}] Sending to ${msg.to}: "${plainText.slice(0, 100)}${plainText.length > 100 ? "..." : ""}"`);
+    logger.info(`[${this.id}] Sending to ${msg.to} (${plainText.length} chars): "${plainText.slice(0, 100)}${plainText.length > 100 ? "..." : ""}"`);
 
     await sendMessageApi({
       baseUrl: DEFAULT_BASE_URL,
