@@ -183,6 +183,8 @@ export class WeixinChannel implements Channel {
           // Skip if no text and no images
           if (text.trim().length === 0 && imageItems.length === 0) continue;
 
+          logger.info(`[${this.id}] Received message from ${raw.from_user_id}: "${text.slice(0, 100)}${text.length > 100 ? "..." : ""}"${imageItems.length ? ` +${imageItems.length} image(s)` : ""}`);
+
           // Download all images
           const images: ImageAttachment[] = [];
           for (const imageItem of imageItems) {
@@ -221,6 +223,8 @@ export class WeixinChannel implements Channel {
     const itemList = plainText
       ? [{ type: MessageItemType.TEXT, text_item: { text: plainText } }]
       : [];
+
+    logger.info(`[${this.id}] Sending to ${msg.to}: "${plainText.slice(0, 100)}${plainText.length > 100 ? "..." : ""}"`);
 
     await sendMessageApi({
       baseUrl: DEFAULT_BASE_URL,
