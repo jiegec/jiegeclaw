@@ -42,7 +42,9 @@ registerCommand("cd", async ({ channel, msg, handler }, args) => {
   const dir = args.replace(/^~/, os.homedir());
   const resolved = path.resolve(dir);
   await handler.cd(channel.id, resolved);
-  await channel.send({ to: msg.from, text: `📁 Switched to ${resolved}`, contextToken: msg.contextToken });
+  const url = handler.getUrl(channel.id);
+  const extra = url ? `\nWeb: ${url}` : "";
+  await channel.send({ to: msg.from, text: `📁 Switched to ${resolved}${extra}`, contextToken: msg.contextToken });
   return true;
 });
 
@@ -62,6 +64,9 @@ registerCommand("status", async ({ channel, msg, handler }) => {
     }
   } else {
     lines.push("- **Session:** not connected");
+  }
+  if (status.url) {
+    lines.push(`- **Web:** ${status.url}`);
   }
   await channel.send({ to: msg.from, text: "Status:\n\n" + lines.join("\n"), contextToken: msg.contextToken });
   return true;

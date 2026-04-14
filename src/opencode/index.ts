@@ -74,14 +74,19 @@ export class OpencodeHandler {
     return undefined;
   }
 
+  /** Get the server URL for a channel, if a session is active. */
+  getUrl(channelId: string): string | undefined {
+    return this.channelStates.get(channelId)?.server?.url;
+  }
+
   /** Get the current status of a channel (directory and optional session ID). */
-  getStatus(channelId: string): { directory?: string; sessionID?: string } {
+  getStatus(channelId: string): { directory?: string; sessionID?: string; url?: string } {
     const state = this.channelStates.get(channelId);
     if (!state) {
       const lastDir = getLastDir(channelId);
       return { directory: lastDir };
     }
-    return { directory: state.directory, sessionID: state.sessionID };
+    return { directory: state.directory, sessionID: state.sessionID, url: state.server?.url };
   }
 
   async getProjects(channelId: string): Promise<Array<{ id: string; name?: string; worktree: string }>> {
@@ -152,9 +157,10 @@ export class OpencodeHandler {
     const state = this.channelStates.get(channelId);
     const lastFrom = getLastFrom(channelId);
     if (state && lastFrom) {
+      const url = state.server?.url ? `\nWeb: ${state.server.url}` : "";
       await state.stream.send({
         to: lastFrom,
-        text: `Session restored in \`${state.directory}\` (${state.sessionID?.slice(0, 8)}): ${state.sessionTitle}`,
+        text: `Session restored in \`${state.directory}\` (${state.sessionID?.slice(0, 8)}): ${state.sessionTitle}${url}`,
       });
     }
   }
