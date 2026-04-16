@@ -14,6 +14,7 @@ import type { ChannelState, StreamHandler } from "./types.js";
 import { partToText, formatStreamingContent, formatToolPart } from "./formatting.js";
 import { handlePermission, handleQuestion } from "./handlers.js";
 import { createBaseMsg } from "./utils.js";
+import { formatPromptError } from "./errors.js";
 import logger from "../utils/logger.js";
 
 interface StreamingPart {
@@ -82,10 +83,7 @@ export async function runEventLoop(
         // Handle session errors (forward to user)
         if (e.type === "session.error" && isOwnEvent(e.properties.sessionID)) {
           const errObj = e.properties.error;
-          let errMsg = "unknown error";
-          if (errObj && "data" in errObj && (errObj as { data: { message?: string } }).data?.message) {
-            errMsg = (errObj as { data: { message?: string } }).data.message!;
-          }
+          const errMsg = errObj ? formatPromptError(errObj) : "unknown error";
           if (baseMsg !== undefined) {
             await stream.send({ ...baseMsg, text: `Error: ${errMsg}` });
           }

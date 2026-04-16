@@ -17,15 +17,6 @@ import net from "node:net";
 import { setGlobalDispatcher, Agent } from "undici";
 import { createOpencodeClient } from "@opencode-ai/sdk/v2";
 import type { FilePartInput, OpencodeClient, TextPartInput } from "@opencode-ai/sdk/v2";
-import type {
-  ProviderAuthError,
-  UnknownError,
-  MessageOutputLengthError,
-  MessageAbortedError,
-  StructuredOutputError,
-  ContextOverflowError,
-  ApiError,
-} from "@opencode-ai/sdk/v2";
 import type { InboundMessage } from "../types.js";
 
 // Avoid 5 minute timeout for /cron tasks
@@ -42,38 +33,9 @@ import type { StreamHandler, ServerProcess, ChannelState } from "./types.js";
 import { runEventLoop } from "./event-loop.js";
 import logger from "../utils/logger.js";
 import { stringify } from "yaml";
+import { formatPromptError } from "./errors.js";
 
 export type { StreamHandler } from "./types.js";
-
-type PromptError =
-  | ProviderAuthError
-  | UnknownError
-  | MessageOutputLengthError
-  | MessageAbortedError
-  | StructuredOutputError
-  | ContextOverflowError
-  | ApiError;
-
-function formatPromptError(error: PromptError): string {
-  switch (error.name) {
-    case "ProviderAuthError":
-      return `Provider auth error (${error.data.providerID}): ${error.data.message}`;
-    case "UnknownError":
-      return `Unknown error: ${error.data.message}`;
-    case "MessageOutputLengthError":
-      return `Message output length error: ${JSON.stringify(error.data)}`;
-    case "MessageAbortedError":
-      return `Message aborted: ${error.data.message}`;
-    case "StructuredOutputError":
-      return `Structured output error (retries: ${error.data.retries}): ${error.data.message}`;
-    case "ContextOverflowError":
-      return `Context overflow: ${error.data.message}`;
-    case "APIError": {
-      const { statusCode, message, isRetryable } = error.data;
-      return `API error${statusCode !== undefined ? ` (${statusCode})` : ""}: ${message}${isRetryable ? " (retryable)" : ""}`;
-    }
-  }
-}
 
 export class OpencodeHandler {
   private channelStates: Map<string, ChannelState> = new Map();
