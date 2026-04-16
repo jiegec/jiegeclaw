@@ -444,6 +444,14 @@ export class OpencodeHandler {
         parts: [{ type: "text", text: prompt }],
       });
 
+      if (resp.error) {
+        return `Error: ${stringify(resp.error)}`;
+      }
+
+      if (resp.data?.info?.error) {
+        return `Error: ${stringify(resp.data.info.error)}`;
+      }
+
       return resp.data?.parts
         .filter((p) => p.type === "text")
         .map((p) => p.text)
