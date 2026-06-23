@@ -10,6 +10,7 @@ import type {
   StructuredOutputError,
   ContextOverflowError,
   ApiError,
+  ContentFilterError,
 } from "@opencode-ai/sdk/v2";
 
 export type PromptError =
@@ -19,7 +20,8 @@ export type PromptError =
   | MessageAbortedError
   | StructuredOutputError
   | ContextOverflowError
-  | ApiError;
+  | ApiError
+  | ContentFilterError;
 
 export function formatPromptError(error: PromptError): string {
   switch (error.name) {
@@ -35,6 +37,8 @@ export function formatPromptError(error: PromptError): string {
       return `Structured output error (retries: ${error.data.retries}): ${error.data.message}`;
     case "ContextOverflowError":
       return `Context overflow: ${error.data.message}`;
+    case "ContentFilterError":
+      return `Content filter error: ${error.data.message}`;
     case "APIError": {
       const { statusCode, message, isRetryable } = error.data;
       return `API error${statusCode !== undefined ? ` (${statusCode})` : ""}: ${message}${isRetryable ? " (retryable)" : ""}`;
