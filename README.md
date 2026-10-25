@@ -18,7 +18,7 @@ Sessions are persisted to `~/.jiegeclaw/sessions.yaml`. When you `/cd` to a dire
 
 ## Setup
 
-Requires Node.js >= 22 and [opencode](https://opencode.ai) installed and available in `$PATH`.
+Requires Node.js >= 24.22.1 and [opencode](https://opencode.ai) installed and available in `$PATH`.
 
 ```bash
 npm install
